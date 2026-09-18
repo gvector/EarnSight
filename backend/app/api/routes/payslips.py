@@ -17,9 +17,8 @@ from app.services.extraction.result import (
     ExtractionResult,
     apply_to_document,
 )
-from app.services.extraction.runner import process_document_sync
 from app.services.llm.gateway import get_gateway
-from app.workers.tasks import process_document
+from app.workers.dispatch import dispatch_processing
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +34,13 @@ async def _get_document(doc_id: uuid.UUID, db: DB, user: CurrentUser) -> Payslip
     return doc
 
 
-async def _enqueue_or_process_inline(doc_id: uuid.UUID, db: DB) -> None:
-    try:
-        process_document.delay(str(doc_id))
-    except Exception:
-        logger.warning("broker Redis non disponibile: elaborazione inline")
-        await asyncio.to_thread(process_document_sync, str(doc_id))
-        await db.refresh(await db.get(PayslipDocument, doc_id))  # pragma: no cover
+async def _dispatch_and_refresh(doc_id: uuid.UUID, db: DB) -> PayslipDocument:
+    """Accoda (o elabora inline) e riporta lo stato aggiornato del documento."""
+    await dispatch_processing(doc_id)
+    doc = await db.get(PayslipDocument, doc_id)
+    if doc is not None:
+        await db.refresh(doc)
+    return doc
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
@@ -75,8 +74,7 @@ async def upload_payslip(
     await db.commit()
     await db.refresh(doc)
 
-    await _enqueue_or_process_inline(doc_id, db)
-    return doc
+    return await _dispatch_and_refresh(doc_id, db)
 
 
 @router.get("", response_model=list[DocumentOut])
@@ -110,8 +108,8 @@ async def reprocess_payslip(
     doc = await _get_document(doc_id, db, user)
     doc.status = DocumentStatus.PENDING.value
     await db.commit()
-    await _enqueue_or_process_inline(doc.id, db)
-    return doc
+    await db.refresh(doc)
+    return await _dispatch_and_refresh(doc_id, db)
 
 
 @router.patch("/{doc_id}/fields", response_model=DocumentDetailOut)

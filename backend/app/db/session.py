@@ -12,17 +12,5 @@ def _sync_url() -> str:
     return settings.database_url.replace("+asyncpg", "+psycopg")
 
 
-def make_sync_engine():
-    return create_engine(_sync_url(), pool_pre_ping=True)
-
-
-_sync_engine = None
-SyncSessionLocal: sessionmaker | None = None
-
-
-def sync_session_local() -> sessionmaker:
-    global _sync_engine, SyncSessionLocal
-    if SyncSessionLocal is None:
-        _sync_engine = make_sync_engine()
-        SyncSessionLocal = sessionmaker(_sync_engine, expire_on_commit=False)
-    return SyncSessionLocal
+sync_engine = create_engine(_sync_url(), pool_pre_ping=True)
+SyncSessionLocal = sessionmaker(sync_engine, expire_on_commit=False)

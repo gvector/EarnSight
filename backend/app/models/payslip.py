@@ -2,11 +2,15 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+# JSONB su Postgres, JSON su sqlite: rende la path di persistenza testabile
+# in memoria (session factory iniettata) senza un Postgres reale.
+JSONType = JSONB().with_variant(JSON(), "sqlite")
 
 
 class PayslipDocument(Base):
@@ -22,7 +26,7 @@ class PayslipDocument(Base):
     # (pending | processing | done | needs_review | needs_ocr | failed)
     template: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    extraction: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    extraction: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
 
     period_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     period_year: Mapped[int | None] = mapped_column(Integer, nullable=True)

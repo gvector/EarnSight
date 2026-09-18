@@ -32,6 +32,9 @@ il codice e le conversazioni allineati al dominio.
   done, needs_review, needs_ocr, failed.
 - **apply_to_document** — la seam di proiezione del risultato sul Document
   (JSONB, colonne dedicate, status): un solo owner, condivisa da worker e API.
+- **dispatch_processing** — la seam che possiede la decisione di esecuzione del
+  job (`app/workers/dispatch.py`): task Celery quando il broker è raggiungibile,
+  thread locale quando non lo è. Due adapter giustificano il seam.
 - **Gateway LLM** — adapter pluggable verso Ollama (locale, primario) o OpenAI
   (quando deployato online). Due adapter giustificano il seam.
 

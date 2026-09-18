@@ -7,7 +7,9 @@ import uuid
 from decimal import Decimal
 from pathlib import Path
 
-from app.db.session import sync_session_local
+from sqlalchemy.orm import sessionmaker
+
+from app.db.session import SyncSessionLocal
 from app.models.payslip import PayslipDocument, PayslipEntry
 from app.services.extraction.pipeline import run_extraction
 from app.services.extraction.result import DocumentStatus, apply_to_document
@@ -15,10 +17,18 @@ from app.services.extraction.result import DocumentStatus, apply_to_document
 logger = logging.getLogger(__name__)
 
 
-def process_document_sync(doc_id: str) -> None:
-    """Elabora un documento: estrazione → validazione → persistenza."""
-    SyncSessionLocal = sync_session_local()
-    with SyncSessionLocal() as db:
+def process_document_sync(
+    doc_id: str,
+    session_factory: sessionmaker | None = None,
+) -> None:
+    """Elabora un documento: estrazione → validazione → persistenza.
+
+    La session factory è iniettabile: in produzione è SyncSessionLocal,
+    nei test una factory su sqlite — la path di persistenza è testabile
+    senza un Postgres reale.
+    """
+    factory = session_factory or SyncSessionLocal
+    with factory() as db:
         try:
             doc = db.get(PayslipDocument, uuid.UUID(doc_id))
         except (ValueError, TypeError):
