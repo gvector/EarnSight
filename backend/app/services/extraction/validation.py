@@ -12,14 +12,12 @@ from typing import Any
 TOLERANCE = 0.02
 
 
-def _value(fields: dict[str, dict[str, Any]], name: str) -> Any:
+def _value(fields: dict[str, Any], name: str) -> Any:
     field_value = fields.get(name)
-    return field_value.get("value") if field_value else None
+    return field_value.value if field_value else None
 
 
-def run_validation(
-    fields: dict[str, dict[str, Any]], entries: list[dict[str, Any]]
-) -> dict[str, Any]:
+def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
@@ -81,8 +79,8 @@ def run_validation(
             }
         )
 
-    spettanze = sum(e["amount"] for e in entries if e["entry_type"] == "spettanza")
-    trattenute = sum(e["amount"] for e in entries if e["entry_type"] == "trattenuta")
+    spettanze = sum(e.amount for e in entries if e.entry_type == "spettanza")
+    trattenute = sum(e.amount for e in entries if e.entry_type == "trattenuta")
     if entries and gross is not None and abs(spettanze - gross) > 1.0:
         warnings.append(
             {

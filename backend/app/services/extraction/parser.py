@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.extraction.result import NUMERIC_FIELDS, FieldProvenance
 from app.services.extraction.text_layer import Line
 
 AMOUNT_PATTERN = r"\d{1,3}(?:\.\d{3})*,\d{2}"
@@ -52,16 +53,14 @@ _ENTRIES_STOP_RE = re.compile(
     r"|netto\s+(?:da|a)\s+pagare|netto\s+in\s+busta|(?:totale\s+)?netto)"
 )
 
-NUMERIC_FIELDS = ("gross_pay", "net_pay", "total_deductions")
-
 
 def parse_amount(raw: str) -> float:
     """Converte un importo italiano ('1.234,56' / '250,00') in float."""
     return float(raw.replace(".", "").replace(",", "."))
 
 
-def _field_value(value: Any, line: Line, confidence: float = 0.9) -> dict[str, Any]:
-    return {"value": value, "confidence": confidence, "source": line.text, "corrected": False}
+def _field_value(value: Any, line: Line, confidence: float = 0.9) -> FieldProvenance:
+    return FieldProvenance.parsed(value, source=line.text, confidence=confidence)
 
 
 def _parse_total_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) -> None:
@@ -154,7 +153,9 @@ def _parse_entries(lines: list[Line]) -> list[dict[str, Any]]:
     return entries
 
 
-def parse_payslip(lines: list[Line]) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+def parse_payslip(
+    lines: list[Line],
+) -> tuple[dict[str, FieldProvenance], list[dict[str, Any]]]:
     """Parsing completo: restituisce (campi, voci)."""
     fields: dict[str, dict[str, Any]] = {}
     _parse_simple_fields(lines, fields)

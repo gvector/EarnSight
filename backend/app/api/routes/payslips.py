@@ -1,9 +1,8 @@
 import asyncio
 import logging
 import uuid
-from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -12,8 +11,13 @@ from app.api.deps import DB, CurrentUser
 from app.core.config import settings
 from app.models.payslip import PayslipDocument
 from app.schemas.payslip import CorrectionIn, DocumentDetailOut, DocumentOut
-from app.services.extraction.pipeline import revalidate
-from app.services.extraction.runner import NUMERIC_FIELDS, process_document_sync
+from app.services.extraction.result import (
+    NUMERIC_FIELDS,
+    DocumentStatus,
+    ExtractionResult,
+    apply_to_document,
+)
+from app.services.extraction.runner import process_document_sync
 from app.services.llm.gateway import get_gateway
 from app.workers.tasks import process_document
 
@@ -31,16 +35,13 @@ async def _get_document(doc_id: uuid.UUID, db: DB, user: CurrentUser) -> Payslip
     return doc
 
 
-def _sync_doc_columns(doc: PayslipDocument, fields: dict[str, Any]) -> None:
-    for field_name in NUMERIC_FIELDS:
-        value = (fields.get(field_name) or {}).get("value")
-        setattr(
-            doc,
-            field_name,
-            Decimal(str(value)) if isinstance(value, int | float) else None,
-        )
-    doc.period_month = (fields.get("period_month") or {}).get("value")
-    doc.period_year = (fields.get("period_year") or {}).get("value")
+async def _enqueue_or_process_inline(doc_id: uuid.UUID, db: DB) -> None:
+    try:
+        process_document.delay(str(doc_id))
+    except Exception:
+        logger.warning("broker Redis non disponibile: elaborazione inline")
+        await asyncio.to_thread(process_document_sync, str(doc_id))
+        await db.refresh(await db.get(PayslipDocument, doc_id))  # pragma: no cover
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
@@ -68,18 +69,13 @@ async def upload_payslip(
         doc_type=doc_type,
         filename=filename,
         stored_path=str(dest),
-        status="pending",
+        status=DocumentStatus.PENDING.value,
     )
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
 
-    try:
-        process_document.delay(str(doc_id))
-    except Exception:
-        logger.warning("broker Redis non disponibile: elaborazione inline")
-        await asyncio.to_thread(process_document_sync, str(doc_id))
-        await db.refresh(doc)
+    await _enqueue_or_process_inline(doc_id, db)
     return doc
 
 
@@ -112,14 +108,9 @@ async def reprocess_payslip(
     db: DB,
 ) -> PayslipDocument:
     doc = await _get_document(doc_id, db, user)
-    doc.status = "pending"
+    doc.status = DocumentStatus.PENDING.value
     await db.commit()
-    try:
-        process_document.delay(str(doc_id))
-    except Exception:
-        logger.warning("broker Redis non disponibile: elaborazione inline")
-        await asyncio.to_thread(process_document_sync, str(doc_id))
-        await db.refresh(doc)
+    await _enqueue_or_process_inline(doc.id, db)
     return doc
 
 
@@ -132,20 +123,9 @@ async def correct_fields(
 ) -> PayslipDocument:
     """Correzione manuale dei campi segnalati dalla validazione."""
     doc = await _get_document(doc_id, db, user)
-    extraction = dict(doc.extraction or {})
-    fields: dict[str, Any] = dict(extraction.get("fields") or {})
-    entries: list[dict[str, Any]] = list(extraction.get("entries") or [])
-
-    for field_name, value in body.fields.items():
-        field_value = dict(fields.get(field_name) or {})
-        field_value.update({"value": value, "confidence": 1.0, "corrected": True})
-        fields[field_name] = field_value
-
-    result = revalidate(fields, entries)
-    extraction.update({"fields": fields, "entries": entries, **result})
-    doc.extraction = extraction
-    _sync_doc_columns(doc, fields)
-    doc.status = "done" if result["validation"]["passed"] else "needs_review"
+    result = ExtractionResult.from_jsonb(doc.extraction)
+    result.apply_user_correction(body.fields)
+    apply_to_document(doc, result)
     doc.error = None
     await db.commit()
     await db.refresh(doc)
@@ -166,14 +146,12 @@ async def llm_resolve_fields(
             status.HTTP_400_BAD_REQUEST,
             "Nessun provider LLM configurato (LLM_PROVIDER vuoto)",
         )
-    extraction = dict(doc.extraction or {})
-    fields: dict[str, Any] = dict(extraction.get("fields") or {})
-    entries: list[dict[str, Any]] = list(extraction.get("entries") or [])
-    issues = [i for i in (extraction.get("issues") or []) if i.get("field")]
+    result = ExtractionResult.from_jsonb(doc.extraction)
 
-    field_names = sorted({i["field"] for i in issues if i.get("field")})
+    field_names = result.issue_fields()
     if not field_names:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nessun campo da risolvere con LLM")
+    issues = [issue.model_dump() for issue in result.issues if issue.field]
 
     raw_text = doc.raw_text or ""
     try:
@@ -184,24 +162,17 @@ async def llm_resolve_fields(
             status.HTTP_502_BAD_GATEWAY, f"Provider LLM non raggiungibile: {exc}"
         ) from exc
 
+    corrections = {}
     for field_name, value in (resolved or {}).items():
         if field_name not in field_names:
             continue
-        if field_name == "period_month":
-            value = int(value)
-        elif field_name == "period_year":
+        if field_name in ("period_month", "period_year"):
             value = int(value)
         elif field_name in NUMERIC_FIELDS:
             value = float(value)
-        field_value = dict(fields.get(field_name) or {})
-        field_value.update({"value": value, "confidence": 0.7, "corrected": False, "source": "llm"})
-        fields[field_name] = field_value
-
-    result = revalidate(fields, entries)
-    extraction.update({"fields": fields, "entries": entries, **result})
-    doc.extraction = extraction
-    _sync_doc_columns(doc, fields)
-    doc.status = "done" if result["validation"]["passed"] else "needs_review"
+        corrections[field_name] = value
+    result.apply_llm_corrections(corrections)
+    apply_to_document(doc, result)
     await db.commit()
     await db.refresh(doc)
     return doc

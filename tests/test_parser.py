@@ -17,17 +17,19 @@ def test_parse_payslip_fields(payslip_pdf):
     lines = extract_lines(payslip_pdf)
     fields, _ = parse_payslip(lines)
 
-    assert fields["fiscal_code"]["value"] == "RSSMRA80A01H501U"
-    assert fields["employee_name"]["value"] == "ROSSI MARIO"
-    assert fields["company_name"]["value"] == "ESEMPIO SRL"
-    assert fields["matricola"]["value"] == "12345"
-    assert fields["period_month"]["value"] == 1
-    assert fields["period_year"]["value"] == 2026
-    assert fields["gross_pay"]["value"] == 2500.0
-    assert fields["total_deductions"]["value"] == 250.0
-    assert fields["net_pay"]["value"] == 2250.0
+    assert fields["fiscal_code"].value == "RSSMRA80A01H501U"
+    assert fields["employee_name"].value == "ROSSI MARIO"
+    assert fields["company_name"].value == "ESEMPIO SRL"
+    assert fields["matricola"].value == "12345"
+    assert fields["period_month"].value == 1
+    assert fields["period_year"].value == 2026
+    assert fields["gross_pay"].value == 2500.0
+    assert fields["total_deductions"].value == 250.0
+    assert fields["net_pay"].value == 2250.0
     for field in fields.values():
-        assert field["confidence"] >= 0.9
+        assert field.confidence >= 0.9
+        assert field.source
+        assert field.corrected is False
 
 
 def test_parse_payslip_entries_column_assignment(payslip_pdf):
@@ -44,7 +46,6 @@ def test_parse_payslip_entries_column_assignment(payslip_pdf):
 
 def test_parse_payslip_missing_net(payslip_pdf):
     lines = extract_lines(payslip_pdf)
-    # rimuove la riga del netto
     filtered = [line for line in lines if "Netto" not in line.text]
     fields, _ = parse_payslip(filtered)
     assert "net_pay" not in fields

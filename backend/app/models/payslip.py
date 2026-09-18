@@ -18,7 +18,8 @@ class PayslipDocument(Base):
     filename: Mapped[str] = mapped_column(String(512))
     stored_path: Mapped[str] = mapped_column(String(1024))
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
-    # pending | processing | done | needs_review | needs_ocr | failed
+    # valori validi: app.services.extraction.result.DocumentStatus
+    # (pending | processing | done | needs_review | needs_ocr | failed)
     template: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     extraction: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
