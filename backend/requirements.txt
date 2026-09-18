@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+sqlalchemy[asyncio]
+asyncpg
+psycopg[binary]
+alembic
+celery[redis]
+redis
+pymupdf
+python-multipart
+httpx
+pyjwt
