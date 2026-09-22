@@ -17,7 +17,7 @@ from app.services.extraction.result import (
     ExtractionResult,
     apply_to_document,
 )
-from app.services.llm.gateway import get_gateway
+from app.services.llm.gateway import get_gateway_for_user
 from app.workers.dispatch import dispatch_processing
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ async def llm_resolve_fields(
 ) -> PayslipDocument:
     """Richiede all'LLM (gateway configurato) i valori dei campi con problemi."""
     doc = await _get_document(doc_id, db, user)
-    gateway = get_gateway()
+    gateway = await get_gateway_for_user(db, user)
     if gateway is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

@@ -116,3 +116,29 @@ def get_gateway() -> BaseGateway | None:
     if settings.llm_provider == "ollama":
         return OllamaGateway(settings.ollama_base_url, settings.ollama_model)
     return None
+
+
+async def get_gateway_for_user(db, user) -> BaseGateway | None:  # noqa: ANN001
+    """Gateway costruito dalle impostazioni dell'utente (DB), fallback env.
+
+    L'API key OpenAI è cifrata a riposo e decifrata solo qui, alla
+    costruzione dell'adapter.
+    """
+    from sqlalchemy import select
+
+    from app.core.crypto import decrypt_secret
+    from app.models.setting import AppSetting
+
+    result = await db.execute(select(AppSetting).where(AppSetting.user_id == user.id))
+    row = result.scalar_one_or_none()
+    if row is None:
+        return get_gateway()
+    if row.llm_provider == "openai" and row.openai_api_key_encrypted:
+        api_key = decrypt_secret(row.openai_api_key_encrypted)
+        return OpenAiGateway(api_key, row.openai_model or settings.openai_model)
+    if row.llm_provider == "ollama":
+        return OllamaGateway(
+            row.ollama_base_url or settings.ollama_base_url,
+            row.ollama_model or settings.ollama_model,
+        )
+    return None

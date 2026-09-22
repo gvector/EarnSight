@@ -12,3 +12,4 @@ pymupdf
 python-multipart
 httpx
 pyjwt
+cryptography

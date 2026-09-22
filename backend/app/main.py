@@ -4,9 +4,11 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 import app.models.payslip  # noqa: F401
-import app.models.user  # noqa: F401  (registra i modelli su Base.metadata)
+import app.models.setting  # noqa: F401  (registra i modelli su Base.metadata)
+import app.models.user  # noqa: F401
 from app.api.routes.auth import router as auth_router
 from app.api.routes.payslips import router as payslips_router
+from app.api.routes.settings import router as settings_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.security import hash_password
@@ -37,6 +39,7 @@ app = FastAPI(title="EarnSight API", version="0.1.0", lifespan=lifespan)
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(payslips_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 
 @app.get("/health")

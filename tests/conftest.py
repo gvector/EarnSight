@@ -1,5 +1,16 @@
-import pymupdf as fitz
-import pytest
+import os
+
+# Le impostazioni vanno fissate prima di ogni import di app.*: pydantic-settings
+# cachea la configurazione al primo import (e i valori d'ambiente vincono sul .env).
+# sqlite+aiosqlite rende l'API testabile (lifespan + TestClient) senza Postgres;
+# credenziali di test esplicite perché il .env di sviluppo non influenzi il seed.
+_test_db = os.path.join(os.path.dirname(__file__), f".test-api-{os.getpid()}.sqlite3")
+os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_test_db}")
+os.environ.setdefault("AUTH_USERNAME", "admin")
+os.environ.setdefault("AUTH_PASSWORD", "admin")
+
+import pymupdf as fitz  # noqa: E402
+import pytest  # noqa: E402
 
 HEADER_ROWS = [
     "AZIENDA ESEMPIO SRL",

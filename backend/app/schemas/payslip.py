@@ -53,6 +53,7 @@ class DocumentOut(BaseModel):
 class DocumentDetailOut(DocumentOut):
     raw_text: str | None
     extraction: dict | None
+    entries: list[EntryOut] = []
 
 
 class CorrectionIn(BaseModel):
