@@ -5,6 +5,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-earnsight}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-earnsight}
       POSTGRES_DB: ${POSTGRES_DB:-earnsight}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
