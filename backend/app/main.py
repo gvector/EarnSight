@@ -3,25 +3,25 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import select
 
-import app.models.payslip  # noqa: F401
-import app.models.setting  # noqa: F401  (registra i modelli su Base.metadata)
-import app.models.user  # noqa: F401
 from app.api.routes.auth import router as auth_router
 from app.api.routes.payslips import router as payslips_router
 from app.api.routes.settings import router as settings_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.security import hash_password
-from app.db.base import Base
-from app.db.session import AsyncSessionLocal, engine
+from app.db.session import AsyncSessionLocal
 from app.models.user import User
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     setup_logging()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if settings.secret_key_is_placeholder:
+        raise RuntimeError(
+            "SECRET_KEY non configurata (o placeholder): generane una con "
+            '`python -c "import secrets; print(secrets.token_urlsafe(48))"` '
+            "e mettila nel .env. Da essa deriva la chiave Fernet delle API key."
+        )
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.username == settings.auth_username))
         if result.scalar_one_or_none() is None:

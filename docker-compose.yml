@@ -30,7 +30,8 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Lo schema nasce da Alembic (mai da create_all): prima migrazione, poi serve.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +49,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api:
+        condition: service_started
 
   frontend:
     build: ./frontend
