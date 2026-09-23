@@ -9,6 +9,7 @@ ricostruzione come from_jsonb. Lo status del documento è derivato qui
 from __future__ import annotations
 
 import enum
+import math
 from decimal import Decimal
 from typing import Any
 
@@ -19,6 +20,40 @@ from app.services.extraction.validation import run_validation
 
 # Campi specchiati in colonne dedicate del documento (per analytics).
 NUMERIC_FIELDS = ("gross_pay", "net_pay", "total_deductions")
+INT_FIELDS = ("period_month", "period_year")
+
+
+def coerce_correction_value(name: str, value: Any) -> Any:
+    """Coercizione tipizzata del valore di una correzione (utente o LLM).
+
+    Solleva ValueError con un messaggio chiaro se il valore non è compatibile
+    con il campo: la route la traduce in 422 (input utente) oppure salta il
+    campo (risposta LLM malformata). Nessun valore non tipizzato raggiunge
+    mai la validazione o le colonne dedicate.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{name}: valore non valido ({value!r})")
+    if name in INT_FIELDS:
+        try:
+            number = float(str(value).strip().replace(",", "."))
+        except ValueError:
+            raise ValueError(f"{name}: valore non numerico ({value!r})") from None
+        if not math.isfinite(number):  # float('nan')/float('inf') passerebbero
+            raise ValueError(f"{name}: valore non numerico ({value!r})")
+        if not number.is_integer():
+            raise ValueError(f"{name} richiede un numero intero, ricevuto {value!r}")
+        return int(number)
+    if name in NUMERIC_FIELDS:
+        try:
+            number = float(str(value).strip().replace(",", "."))
+        except ValueError:
+            raise ValueError(f"{name}: valore non numerico ({value!r})") from None
+        if not math.isfinite(number):
+            raise ValueError(f"{name}: valore non numerico ({value!r})")
+        return number
+    return value
 
 
 class DocumentStatus(enum.StrEnum):
@@ -84,6 +119,7 @@ class Entry(BaseModel):
 
 class ExtractionResult(BaseModel):
     template: str | None = None
+    doc_type: str = "cedolino"  # cedolino | cu: guida parser e validazione
     fields: dict[str, FieldProvenance] = Field(default_factory=dict)
     entries: list[Entry] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
@@ -102,9 +138,23 @@ class ExtractionResult(BaseModel):
             validation=ValidationSummary(**(data.get("validation") or {})),
         )
 
+    @classmethod
+    def from_document(cls, doc: PayslipDocument) -> ExtractionResult:
+        """Ricostruisce il risultato completo dal Document: JSONB + colonne.
+
+        template e raw_text vivono solo nelle colonne dedicate (non nella
+        proiezione JSONB): è qui che vengono recuperati, così le correzioni
+        non li azzerano mai al passaggio apply_to_document.
+        """
+        result = cls.from_jsonb(doc.extraction)
+        result.template = doc.template
+        result.raw_text = doc.raw_text or ""
+        result.doc_type = doc.doc_type or "cedolino"
+        return result
+
     def revalidate(self) -> None:
         """Rivalida i campi correnti, aggiorna issues/validation/status."""
-        report = run_validation(self.fields, self.entries)
+        report = run_validation(self.fields, self.entries, self.doc_type)
         issues = report["errors"] + report["warnings"]
         for issue in issues:
             field_name = issue.get("field")

@@ -17,7 +17,14 @@ def _value(fields: dict[str, Any], name: str) -> Any:
     return field_value.value if field_value else None
 
 
-def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]:
+def _is_number(value: Any) -> bool:
+    """Un valore aritmetico valido: mai stringhe o bool lungo la pipeline."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def run_validation(
+    fields: dict[str, Any], entries: list[Any], doc_type: str = "cedolino"
+) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
@@ -44,7 +51,7 @@ def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]
             }
         )
 
-    if gross is not None and net is not None and deductions is not None:
+    if _is_number(gross) and _is_number(net) and _is_number(deductions):
         if abs(net + deductions - gross) > TOLERANCE:
             errors.append(
                 {
@@ -57,7 +64,7 @@ def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]
                     "action": "user",
                 }
             )
-    elif deductions is None and not any(e["field"] == "total_deductions" for e in errors):
+    elif not _is_number(deductions) and not any(e["field"] == "total_deductions" for e in errors):
         errors.append(
             {
                 "field": "total_deductions",
@@ -69,7 +76,18 @@ def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]
 
     month = _value(fields, "period_month")
     year = _value(fields, "period_year")
-    if month is None or year is None or not (1 <= month <= 12) or not (2000 <= year <= 2100):
+    if doc_type == "cu":
+        # La CU non ha un mese di paga: il periodo è solo l'anno di riferimento.
+        if not (_is_number(year) and 2000 <= year <= 2100):
+            errors.append(
+                {
+                    "field": "period_year",
+                    "check": "period_valid",
+                    "message": "Anno di riferimento della CU mancante o non valido",
+                    "action": "user",
+                }
+            )
+    elif not (_is_number(month) and _is_number(year) and 1 <= month <= 12 and 2000 <= year <= 2100):
         errors.append(
             {
                 "field": "period_month",
@@ -81,7 +99,7 @@ def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]
 
     spettanze = sum(e.amount for e in entries if e.entry_type == "spettanza")
     trattenute = sum(e.amount for e in entries if e.entry_type == "trattenuta")
-    if entries and gross is not None and abs(spettanze - gross) > 1.0:
+    if entries and _is_number(gross) and abs(spettanze - gross) > 1.0:
         warnings.append(
             {
                 "field": None,
@@ -90,7 +108,7 @@ def run_validation(fields: dict[str, Any], entries: list[Any]) -> dict[str, Any]
                 "action": "llm",
             }
         )
-    if entries and deductions is not None and abs(trattenute - deductions) > 1.0:
+    if entries and _is_number(deductions) and abs(trattenute - deductions) > 1.0:
         warnings.append(
             {
                 "field": None,

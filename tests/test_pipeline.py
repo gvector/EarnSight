@@ -92,6 +92,29 @@ def test_to_jsonb_from_jsonb_roundtrip(payslip_pdf):
     assert rebuilt2.status == DocumentStatus.DONE
 
 
+def test_from_document_preserves_template_and_raw_text(payslip_pdf):
+    """Regression: le correzioni non devono azzerare template e raw_text."""
+    from app.models.payslip import PayslipDocument
+
+    result = run_extraction(payslip_pdf)
+    doc = PayslipDocument(
+        extraction=result.to_jsonb(),
+        template=result.template,
+        raw_text=result.raw_text,
+        doc_type="cedolino",
+    )
+
+    rebuilt = ExtractionResult.from_document(doc)
+    assert rebuilt.template == "generic"
+    assert rebuilt.raw_text == result.raw_text
+    assert rebuilt.doc_type == "cedolino"
+
+    # una correzione passa da from_document → apply_to_document senza perdite
+    rebuilt.apply_user_correction({"net_pay": 2250.0})
+    assert rebuilt.raw_text == result.raw_text
+    assert rebuilt.template == "generic"
+
+
 def test_column_values_mirror_dedicated_columns(payslip_pdf):
     from decimal import Decimal
 
@@ -114,3 +137,33 @@ def test_status_from_validation(passed, expected):
     from app.services.extraction.result import status_from_validation
 
     assert status_from_validation(passed) == DocumentStatus(expected)
+
+
+class TestCoerceCorrectionValue:
+    def test_int_fields_accept_numbers(self):
+        from app.services.extraction.result import coerce_correction_value
+
+        assert coerce_correction_value("period_month", 3) == 3
+        assert coerce_correction_value("period_year", "2026") == 2026
+        assert coerce_correction_value("period_month", "03") == 3
+
+    def test_numeric_fields_accept_decimal_strings(self):
+        from app.services.extraction.result import coerce_correction_value
+
+        assert coerce_correction_value("net_pay", "2250.50") == 2250.5
+        assert coerce_correction_value("net_pay", 2250) == 2250.0
+
+    def test_garbage_raises_value_error(self):
+        from app.services.extraction.result import coerce_correction_value
+
+        with pytest.raises(ValueError, match="period_month"):
+            coerce_correction_value("period_month", "marzo")
+        with pytest.raises(ValueError, match="net_pay"):
+            coerce_correction_value("net_pay", "tante cose")
+        with pytest.raises(ValueError, match="period_year"):
+            coerce_correction_value("period_year", 2026.5)
+
+    def test_text_fields_pass_through(self):
+        from app.services.extraction.result import coerce_correction_value
+
+        assert coerce_correction_value("company_name", "Acme Srl") == "Acme Srl"

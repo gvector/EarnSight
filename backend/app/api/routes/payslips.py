@@ -12,10 +12,10 @@ from app.core.config import settings
 from app.models.payslip import PayslipDocument
 from app.schemas.payslip import CorrectionIn, DocumentDetailOut, DocumentOut
 from app.services.extraction.result import (
-    NUMERIC_FIELDS,
     DocumentStatus,
     ExtractionResult,
     apply_to_document,
+    coerce_correction_value,
 )
 from app.services.llm.gateway import get_gateway_for_user
 from app.workers.dispatch import dispatch_processing
@@ -121,8 +121,16 @@ async def correct_fields(
 ) -> PayslipDocument:
     """Correzione manuale dei campi segnalati dalla validazione."""
     doc = await _get_document(doc_id, db, user)
-    result = ExtractionResult.from_jsonb(doc.extraction)
-    result.apply_user_correction(body.fields)
+    try:
+        corrections = {
+            name: coerce_correction_value(name, value) for name, value in body.fields.items()
+        }
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Correzione non valida: {exc}"
+        ) from None
+    result = ExtractionResult.from_document(doc)
+    result.apply_user_correction(corrections)
     apply_to_document(doc, result)
     doc.error = None
     await db.commit()
@@ -144,14 +152,14 @@ async def llm_resolve_fields(
             status.HTTP_400_BAD_REQUEST,
             "Nessun provider LLM configurato (LLM_PROVIDER vuoto)",
         )
-    result = ExtractionResult.from_jsonb(doc.extraction)
+    result = ExtractionResult.from_document(doc)
 
     field_names = result.issue_fields()
     if not field_names:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nessun campo da risolvere con LLM")
     issues = [issue.model_dump() for issue in result.issues if issue.field]
 
-    raw_text = doc.raw_text or ""
+    raw_text = result.raw_text
     try:
         resolved = await asyncio.to_thread(gateway.resolve_fields, raw_text, field_names, issues)
     except Exception as exc:
@@ -164,11 +172,17 @@ async def llm_resolve_fields(
     for field_name, value in (resolved or {}).items():
         if field_name not in field_names:
             continue
-        if field_name in ("period_month", "period_year"):
-            value = int(value)
-        elif field_name in NUMERIC_FIELDS:
-            value = float(value)
-        corrections[field_name] = value
+        try:
+            corrections[field_name] = coerce_correction_value(field_name, value)
+        except ValueError:
+            # risposta LLM malformata su questo campo: lo si lascia al problema
+            # originale, l'utente può ancora correggere a mano. Mai un 500.
+            logger.warning("LLM: valore non valido per %s: %r — saltato", field_name, value)
+    if not corrections:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Il provider LLM non ha restituito valori utilizzabili",
+        )
     result.apply_llm_corrections(corrections)
     apply_to_document(doc, result)
     await db.commit()

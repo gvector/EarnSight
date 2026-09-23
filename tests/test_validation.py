@@ -51,6 +51,27 @@ def test_invalid_period_is_error():
     assert any(e["check"] == "period_valid" for e in report["errors"])
 
 
+def test_garbage_period_produces_issue_not_exception():
+    # input non numerico arrivato chissà come: la validazione non esplode mai
+    report = run_validation(_fields(period_month=FieldProvenance(value="marzo")), _entries())
+    assert any(e["check"] == "period_valid" for e in report["errors"])
+
+
+def test_cu_requires_only_the_year():
+    fields = _fields()
+    del fields["period_month"]
+    report = run_validation(fields, [], doc_type="cu")
+    assert report["passed"] is True
+
+    bad_year = _fields()
+    del bad_year["period_month"]
+    bad_year["period_year"] = FieldProvenance(value=None)
+    report = run_validation(bad_year, [], doc_type="cu")
+    assert any(
+        e["check"] == "period_valid" and e["field"] == "period_year" for e in report["errors"]
+    )
+
+
 def test_entries_sum_mismatch_is_warning():
     entries = _entries()
     entries[0].amount = 2400.0
