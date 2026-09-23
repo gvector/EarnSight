@@ -1,13 +1,6 @@
 import pytest
 from app.core.crypto import decrypt_secret, encrypt_secret
-from app.main import app
 from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client():
-    with TestClient(app) as test_client:  # esegue lifespan: create_all + seed utente
-        yield test_client
 
 
 def _login(test_client: TestClient) -> str:
@@ -80,3 +73,32 @@ def test_settings_clear_api_key(client):
 
 def test_settings_requires_auth(client):
     assert client.get("/api/settings").status_code == 401
+
+
+def test_sync_database_url_maps_known_drivers():
+    from app.core.config import Settings
+
+    postgres = Settings(database_url="postgresql+asyncpg://u:p@h:5432/db", secret_key="x" * 40)
+    assert postgres.sync_database_url == "postgresql+psycopg://u:p@h:5432/db"
+
+    sqlite = Settings(database_url="sqlite+aiosqlite:///./test.db", secret_key="x" * 40)
+    assert sqlite.sync_database_url == "sqlite+pysqlite:///./test.db"
+
+
+def test_sync_database_url_fails_loudly_on_unknown_driver():
+    from app.core.config import Settings
+
+    exotic = Settings(database_url="postgresql+psycopg2://u:p@h/db", secret_key="x" * 40)
+    with pytest.raises(ValueError, match="psycopg2"):
+        _ = exotic.sync_database_url
+
+
+def test_placeholder_secret_key_is_detected():
+    from app.core.config import Settings
+
+    assert Settings(secret_key="dev-secret-change-me").secret_key_is_placeholder is True
+    assert (
+        Settings(secret_key="change-me-with-a-long-random-string").secret_key_is_placeholder is True
+    )
+    assert Settings(secret_key="short").secret_key_is_placeholder is True
+    assert Settings(secret_key="x" * 40).secret_key_is_placeholder is False

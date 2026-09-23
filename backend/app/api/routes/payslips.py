@@ -29,7 +29,7 @@ FileType = Annotated[UploadFile, File(...)]
 
 async def _get_document(doc_id: uuid.UUID, db: DB, user: CurrentUser) -> PayslipDocument:
     doc = await db.get(PayslipDocument, doc_id)
-    if doc is None or (doc.user_id is not None and doc.user_id != user.id):
+    if doc is None or doc.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento non trovato")
     return doc
 
@@ -59,7 +59,12 @@ async def upload_payslip(
     doc_id = uuid.uuid4()
     dest = Path(settings.data_dir) / "pdfs" / f"{doc_id}.pdf"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    content = await file.read()
+    content = await file.read(settings.max_upload_bytes + 1)
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"File troppo grande: massimo {settings.max_upload_mb} MB",
+        )
     dest.write_bytes(content)
 
     doc = PayslipDocument(
@@ -84,7 +89,7 @@ async def list_payslips(
 ) -> list[PayslipDocument]:
     result = await db.execute(
         select(PayslipDocument)
-        .where((PayslipDocument.user_id == user.id) | (PayslipDocument.user_id.is_(None)))
+        .where(PayslipDocument.user_id == user.id)
         .order_by(PayslipDocument.created_at.desc())
     )
     return list(result.scalars().all())
