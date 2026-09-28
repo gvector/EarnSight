@@ -1,3 +1,5 @@
+"""EarnSight API application factory, lifespan bootstrap and health probe."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +17,39 @@ from app.models.user import User
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """FastAPI lifespan handler: bootstrap logging and the admin account.
+
+    Runs once at startup: it activates logging, hard-fails while SECRET_KEY
+    is still a placeholder (the Fernet key that protects stored API keys
+    derives from it, so starting with the placeholder would strand every
+    encrypted secret), and seeds the bootstrap admin user when missing.
+    The parameter is unused because the hook is bound to the module-level
+    ``app`` instance directly.
+
+    Parameters
+    ----------
+    _app : FastAPI
+        The application instance passed by FastAPI (intentionally unused).
+
+    Yields
+    ------
+    None
+        Control back to the application for the duration of its run.
+
+    Raises
+    ------
+    RuntimeError
+        If SECRET_KEY is a known placeholder or shorter than the minimum
+        length, with instructions for generating a replacement.
+
+    Dependencies
+    -----------
+    - app.core.logging.setup_logging : configures the root logger.
+    - app.core.config.settings : secret key check and admin credentials.
+    - app.core.security.hash_password : hashes the seeded admin password.
+    - app.db.session.AsyncSessionLocal : startup database session.
+    - app.models.user.User : bootstrap account model.
+    """
     setup_logging()
     if settings.secret_key_is_placeholder:
         raise RuntimeError(
@@ -44,4 +79,15 @@ app.include_router(settings_router, prefix="/api")
 
 @app.get("/health")
 async def health() -> dict:
+    """Report process liveness for orchestrators and load balancers.
+
+    Returns a static payload on purpose: the probe must stay available
+    even when the database or the broker are degraded, so it never
+    touches downstream dependencies.
+
+    Returns
+    -------
+    dict
+        ``{"status": "ok"}``.
+    """
     return {"status": "ok"}

@@ -28,6 +28,30 @@ FileType = Annotated[UploadFile, File(...)]
 
 
 async def _get_document(doc_id: uuid.UUID, db: DB, user: CurrentUser) -> PayslipDocument:
+    """Load a PayslipDocument owned by the user or raise 404.
+
+    Ownership check on ``user_id`` ensures one user can never read or mutate
+    another user's payslips, even with a valid document id.
+
+    Parameters
+    ----------
+    doc_id : uuid.UUID
+        Identifier of the document (path parameter of the calling route).
+    db : DB
+        Async database session.
+    user : CurrentUser
+        Authenticated user the document must belong to.
+
+    Returns
+    -------
+    PayslipDocument
+        The owned document row.
+
+    Raises
+    ------
+    HTTPException
+        404 — document does not exist or belongs to another user.
+    """
     doc = await db.get(PayslipDocument, doc_id)
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento non trovato")
@@ -35,7 +59,24 @@ async def _get_document(doc_id: uuid.UUID, db: DB, user: CurrentUser) -> Payslip
 
 
 async def _dispatch_and_refresh(doc_id: uuid.UUID, db: DB) -> PayslipDocument:
-    """Accoda (o elabora inline) e riporta lo stato aggiornato del documento."""
+    """Dispatch processing for a document and return its refreshed state.
+
+    Delegates to ``dispatch_processing``, which routes the job to Celery when
+    the broker is reachable or runs it inline otherwise; either way the row is
+    re-read afterwards so the response reflects the post-dispatch status.
+
+    Parameters
+    ----------
+    doc_id : uuid.UUID
+        Identifier of the document to process.
+    db : DB
+        Async database session used to reload the row.
+
+    Returns
+    -------
+    PayslipDocument
+        The document with its status updated after dispatch.
+    """
     await dispatch_processing(doc_id)
     doc = await db.get(PayslipDocument, doc_id)
     if doc is not None:
@@ -50,6 +91,44 @@ async def upload_payslip(
     db: DB,
     doc_type: str = Form("cedolino"),  # noqa: B008
 ) -> PayslipDocument:
+    """Upload a payslip PDF for processing (POST /payslips/upload).
+
+    Validates the upload, persists the PDF under ``data/pdfs`` with a
+    generated UUID filename, creates a ``pending`` Document row, and
+    dispatches processing (Celery or inline fallback). The response
+    already reflects the post-dispatch status.
+
+    Parameters
+    ----------
+    file : UploadFile
+        The uploaded PDF (multipart form field ``file``).
+    doc_type : str, optional
+        Form field selecting the document type: ``"cedolino"`` (monthly
+        payslip, default) or ``"cu"`` (Certificazione Unica, annual).
+    user : CurrentUser
+        Authenticated owner of the new document.
+    db : DB
+        Async database session.
+
+    Returns
+    -------
+    PayslipDocument
+        Serialized as ``DocumentOut``; includes the id, doc type, filename
+        and current processing status.
+
+    Raises
+    ------
+    HTTPException
+        400 — filename does not end with ``.pdf``.
+        400 — ``doc_type`` is not ``"cedolino"`` or ``"cu"``.
+        413 — file exceeds ``settings.max_upload_bytes``.
+
+    Dependencies
+    -----------
+    - user : get_current_user authentication.
+    - db : get_db session persisting the Document row.
+    - dispatch_processing : decides Celery vs inline execution.
+    """
     filename = file.filename or ""
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sono accettati solo file PDF")
@@ -87,6 +166,28 @@ async def list_payslips(
     user: CurrentUser,
     db: DB,
 ) -> list[PayslipDocument]:
+    """List the user's documents, newest first (GET /payslips).
+
+    Returns every cedolino and CU owned by the authenticated user,
+    ordered by creation date descending, so recent uploads appear first.
+
+    Parameters
+    ----------
+    user : CurrentUser
+        Authenticated owner; only her documents are returned.
+    db : DB
+        Async database session.
+
+    Returns
+    -------
+    list[PayslipDocument]
+        Serialized as ``list[DocumentOut]``; one summary per document.
+
+    Dependencies
+    -----------
+    - user : get_current_user authentication and ownership filter.
+    - db : get_db session for the query.
+    """
     result = await db.execute(
         select(PayslipDocument)
         .where(PayslipDocument.user_id == user.id)
@@ -101,6 +202,36 @@ async def get_payslip(
     user: CurrentUser,
     db: DB,
 ) -> PayslipDocument:
+    """Fetch one document with its full extraction result (GET /payslips/{doc_id}).
+
+    Returns the detail view: fields with provenance, entries, validation
+    issues and status, reconstructed from the stored JSONB columns.
+
+    Parameters
+    ----------
+    doc_id : uuid.UUID
+        Path parameter identifying the document.
+    user : CurrentUser
+        Authenticated owner; other users' documents appear as 404.
+    db : DB
+        Async database session.
+
+    Returns
+    -------
+    PayslipDocument
+        Serialized as ``DocumentDetailOut`` with fields, entries, issues
+        and validation outcome.
+
+    Raises
+    ------
+    HTTPException
+        404 — document not found or owned by another user.
+
+    Dependencies
+    -----------
+    - user : get_current_user authentication.
+    - db : get_db session for the document lookup.
+    """
     return await _get_document(doc_id, db, user)
 
 
@@ -110,6 +241,37 @@ async def reprocess_payslip(
     user: CurrentUser,
     db: DB,
 ) -> PayslipDocument:
+    """Re-run the extraction pipeline on a document (POST /payslips/{doc_id}/reprocess).
+
+    Resets the document to ``pending`` and dispatches processing again,
+    which overwrites fields, entries, issues and validation with a fresh
+    extraction. Useful after a parser/template improvement or a failed run.
+
+    Parameters
+    ----------
+    doc_id : uuid.UUID
+        Path parameter identifying the document to reprocess.
+    user : CurrentUser
+        Authenticated owner of the document.
+    db : DB
+        Async database session.
+
+    Returns
+    -------
+    PayslipDocument
+        Serialized as ``DocumentOut`` with the post-dispatch status.
+
+    Raises
+    ------
+    HTTPException
+        404 — document not found or owned by another user.
+
+    Dependencies
+    -----------
+    - user : get_current_user authentication.
+    - db : get_db session for the status reset and reload.
+    - dispatch_processing : decides Celery vs inline execution.
+    """
     doc = await _get_document(doc_id, db, user)
     doc.status = DocumentStatus.PENDING.value
     await db.commit()
@@ -124,7 +286,45 @@ async def correct_fields(
     user: CurrentUser,
     db: DB,
 ) -> PayslipDocument:
-    """Correzione manuale dei campi segnalati dalla validazione."""
+    """Apply manual corrections to flagged fields (PATCH /payslips/{doc_id}/fields).
+
+    Handles the ``user`` resolution path for validation Issues: values are
+    coerced through ``coerce_correction_value``, then the result is rebuilt
+    with ``ExtractionResult.from_document`` so template and raw_text survive
+    the PATCH, corrected in-memory, and re-projected onto the row via
+    ``apply_to_document``.
+
+    Parameters
+    ----------
+    doc_id : uuid.UUID
+        Path parameter identifying the document to correct.
+    body : CorrectionIn
+        Mapping of canonical field names to user-supplied values.
+    user : CurrentUser
+        Authenticated owner of the document.
+    db : DB
+        Async database session.
+
+    Returns
+    -------
+    PayslipDocument
+        Serialized as ``DocumentDetailOut`` with the corrected fields and
+        re-validated result.
+
+    Raises
+    ------
+    HTTPException
+        404 — document not found or owned by another user.
+        422 — a correction value fails type coercion (e.g. a non-numeric
+        value for a numeric field).
+
+    Dependencies
+    -----------
+    - user : get_current_user authentication.
+    - db : get_db session persisting the corrected document.
+    - from_document/apply_to_document : extraction result rebuild and
+      projection onto the PayslipDocument row.
+    """
     doc = await _get_document(doc_id, db, user)
     try:
         corrections = {
@@ -149,7 +349,46 @@ async def llm_resolve_fields(
     user: CurrentUser,
     db: DB,
 ) -> PayslipDocument:
-    """Richiede all'LLM (gateway configurato) i valori dei campi con problemi."""
+    """Resolve flagged fields via the configured LLM gateway (POST /payslips/{doc_id}/llm-resolve).
+
+    Handles the ``llm`` resolution path for validation Issues: builds the
+    prompt input from the document's raw text and the fields flagged by
+    issues, asks the user's gateway (Ollama or OpenAI) for values, coerces
+    each answer and applies it as an LLM correction. Malformed answers for
+    individual fields are skipped with a warning rather than failing the
+    request, so the user can still correct them manually.
+
+    Parameters
+    ----------
+    doc_id : uuid.UUID
+        Path parameter identifying the document to resolve.
+    user : CurrentUser
+        Authenticated owner; also selects the gateway configuration.
+    db : DB
+        Async database session.
+
+    Returns
+    -------
+    PayslipDocument
+        Serialized as ``DocumentDetailOut`` with LLM-corrected fields and
+        re-validated result.
+
+    Raises
+    ------
+    HTTPException
+        404 — document not found or owned by another user.
+        400 — no LLM provider configured for the user, or no issue-flagged
+        fields to resolve.
+        502 — the gateway call fails, or no usable values come back.
+
+    Dependencies
+    -----------
+    - user : get_current_user authentication.
+    - db : get_db session for gateway lookup and persistence.
+    - get_gateway_for_user : per-user LLM gateway selection.
+    - from_document/apply_to_document : extraction result rebuild and
+      projection onto the PayslipDocument row.
+    """
     doc = await _get_document(doc_id, db, user)
     gateway = await get_gateway_for_user(db, user)
     if gateway is None:

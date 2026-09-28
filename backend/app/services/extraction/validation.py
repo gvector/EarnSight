@@ -13,18 +13,111 @@ TOLERANCE = 0.02
 
 
 def _value(fields: dict[str, Any], name: str) -> Any:
+    """Return the raw value of a field from the provenance map.
+
+    Parameters
+    ----------
+    fields : dict of str to Any
+        Field map whose values expose a ``value`` attribute
+        (FieldProvenance instances).
+    name : str
+        Canonical field name.
+
+    Returns
+    -------
+    Any
+        The field's value, or None when the field is missing.
+
+    Examples
+    --------
+    >>> _value({}, "net_pay") is None
+    True
+    """
     field_value = fields.get(name)
     return field_value.value if field_value else None
 
 
 def _is_number(value: Any) -> bool:
-    """Un valore aritmetico valido: mai stringhe o bool lungo la pipeline."""
+    """Check whether a value is an arithmetic-safe number.
+
+    Strings and bools are rejected on purpose: Python's bool is an int
+    subclass, so a bare ``isinstance`` check would let ``True`` flow
+    into the arithmetic checks, and uncoerced strings from raw payloads
+    must never take part in the deterministic checks.
+
+    Parameters
+    ----------
+    value : Any
+        Candidate value.
+
+    Returns
+    -------
+    bool
+        True when the value is an int or float and not a bool.
+
+    Examples
+    --------
+    >>> _is_number(1750.0)
+    True
+    >>> _is_number(True)
+    False
+    >>> _is_number("1750")
+    False
+    """
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 def run_validation(
     fields: dict[str, Any], entries: list[Any], doc_type: str = "cedolino"
 ) -> dict[str, Any]:
+    """Run the deterministic arithmetic checks on an extraction.
+
+    First line of defence before any LLM involvement. Three families of
+    checks run in order: presence of the three totals (gross, net,
+    deductions); the arithmetic identity ``net + deductions == gross``
+    within TOLERANCE; and period validity - a month/year in range for
+    cedolini, only a plausible year for the CU, which has no pay month.
+    When entries are present, their sums are cross-checked against the
+    totals: mismatches are warnings (not blocking), since partially
+    printed tables are legitimate. Every failure becomes an issue dict
+    with a suggested action: ``"user"`` for arithmetic contradictions a
+    human must fix, ``"llm"`` for missing values a targeted gateway
+    request may recover.
+
+    Parameters
+    ----------
+    fields : dict of str to Any
+        Canonical fields keyed by name; values expose ``value``
+        (FieldProvenance instances).
+    entries : list of Any
+        Recognised payslip entries; each exposes ``amount`` and
+        ``entry_type`` ("spettanza" or "trattenuta").
+    doc_type : str, optional
+        ``"cedolino"`` (default) validates month and year; ``"cu"``
+        validates only the reference year.
+
+    Returns
+    -------
+    dict of str to Any
+        Report with ``errors`` and ``warnings`` (lists of issue dicts),
+        ``passed`` (True when no errors), ``error_count`` and
+        ``warning_count``.
+
+    Dependencies
+    -----------
+    - validation._value / _is_number : safe field access and typing.
+    - validation.TOLERANCE : cents-level rounding slack.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> fields = {name: SimpleNamespace(value=v) for name, v in {
+    ...     "gross_pay": 2500.0, "net_pay": 1750.0,
+    ...     "total_deductions": 750.0, "period_month": 9,
+    ...     "period_year": 2026}.items()}
+    >>> run_validation(fields, [])["passed"]
+    True
+    """
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 

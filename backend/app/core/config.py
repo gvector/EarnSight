@@ -18,6 +18,73 @@ _SYNC_DRIVER_MAP = {
 
 
 class Settings(BaseSettings):
+    """Typed application settings loaded from environment and ``.env``.
+
+    Centralizes every external knob of EarnSight: database and Redis URLs,
+    storage directory, authentication material, upload limits and LLM
+    gateway parameters. Values are bound and validated by pydantic-settings
+    at construction, so a malformed environment fails at startup rather
+    than surfacing as a broken connection at runtime.
+
+    Parameters
+    ----------
+    **kwargs : Any, optional
+        Explicit field overrides; when omitted, values come from
+        environment variables or the ``.env`` file (unknown keys are
+        ignored per ``extra="ignore"``).
+
+    Attributes
+    ----------
+    database_url : str
+        Async SQLAlchemy URL used by the API (asyncpg by default).
+    redis_url : str
+        Celery broker URL for document processing jobs.
+    data_dir : str
+        Root directory where uploaded payslip files are stored.
+    secret_key : str
+        Master secret signing JWTs and deriving the Fernet key for
+        stored API keys; must be replaced before production startup.
+    auth_username : str
+        Username seeded for the bootstrap admin account.
+    auth_password : str
+        Password seeded for the bootstrap admin account.
+    access_token_expire_minutes : int
+        JWT lifetime in minutes (default 1440, i.e. one day).
+    max_upload_mb : int
+        Maximum accepted payslip upload size in megabytes.
+    llm_provider : str
+        Selected gateway provider (``"ollama"`` or ``"openai"``);
+        empty disables LLM-assisted correction.
+    openai_api_key : str
+        API key for the OpenAI gateway.
+    openai_model : str
+        Model name used by the OpenAI gateway.
+    ollama_base_url : str
+        Base URL of the local Ollama server.
+    ollama_model : str
+        Model tag used by the Ollama gateway.
+
+    Methods
+    -------
+    sync_database_url
+        Derive the sync-driver URL for workers and Alembic.
+    secret_key_is_placeholder
+        Report whether the master secret is still unsafe.
+    max_upload_bytes
+        Express the upload cap in bytes.
+
+    Dependencies
+    -----------
+    - pydantic_settings.BaseSettings : environment binding and validation.
+    - sqlalchemy.engine.make_url : URL parsing in ``sync_database_url``.
+
+    Examples
+    --------
+    >>> s = Settings(secret_key="x" * 48)  # doctest: +SKIP
+    >>> s.max_upload_bytes
+    10485760
+    """
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+asyncpg://earnsight:earnsight@localhost:5432/earnsight"
@@ -39,11 +106,27 @@ class Settings(BaseSettings):
 
     @property
     def sync_database_url(self) -> str:
-        """URL sync del database (Celery/worker, Alembic).
+        """str: Sync-driver counterpart of ``database_url``.
 
-        replace() a mani basse non copre driver diversi da asyncpg: qui la
-        mappa è esplicita e i driver sconosciuti sollevano un errore chiaro
-        all'avvio, non a runtime su una connessione rotta.
+        Hand-rolled string replacement only covers asyncpg: here the
+        driver mapping is explicit and unknown drivers fail with a clear
+        error at startup, not at runtime on a broken connection.
+
+        Returns
+        -------
+        str
+            Database URL with the sync driver substituted (e.g.
+            ``postgresql+psycopg`` for ``postgresql+asyncpg``).
+
+        Raises
+        ------
+        ValueError
+            If ``database_url`` uses a driver with no configured sync
+            counterpart.
+
+        Dependencies
+        -----------
+        - sqlalchemy.engine.make_url : parses and re-renders the URL.
         """
         url = make_url(self.database_url)
         try:
@@ -59,6 +142,18 @@ class Settings(BaseSettings):
 
     @property
     def secret_key_is_placeholder(self) -> bool:
+        """bool: Whether SECRET_KEY is a known placeholder or too short.
+
+        Guards startup against deploying with an unsafe master secret:
+        both membership in the placeholder set and the minimum length
+        are checked, since a weak key undermines JWT signing and Fernet
+        key derivation alike.
+
+        Returns
+        -------
+        bool
+            True when the key must be replaced before production use.
+        """
         return (
             self.secret_key in _PLACEHOLDER_SECRET_KEYS
             or len(self.secret_key) < MIN_SECRET_KEY_LENGTH
@@ -66,11 +161,33 @@ class Settings(BaseSettings):
 
     @property
     def max_upload_bytes(self) -> int:
+        """int: Upload cap expressed in bytes.
+
+        Converts ``max_upload_mb`` once so route handlers can compare
+        an incoming file's size directly, without per-request arithmetic.
+
+        Returns
+        -------
+        int
+            ``max_upload_mb`` scaled by 1024 squared.
+        """
         return self.max_upload_mb * 1024 * 1024
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Build the Settings instance once per process and cache it.
+
+    The lru_cache guarantees a single instantiation even under
+    concurrent imports, keeping environment parsing cost off the
+    request path; the module-level ``settings`` singleton is produced
+    here at import time.
+
+    Returns
+    -------
+    Settings
+        The process-wide settings object.
+    """
     return Settings()
 
 
