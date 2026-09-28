@@ -1,6 +1,7 @@
 """Revisione: campi segnalati dalla validazione → correzione manuale o LLM."""
 
 import streamlit as st
+from lib.amounts import parse_amount_input
 from lib.api import (
     APIError,
     correct_fields,
@@ -9,7 +10,7 @@ from lib.api import (
     list_documents,
     llm_resolve,
 )
-from lib.ui import format_period, status_chip
+from lib.ui import document_options, format_period, status_chip
 
 # campi dove il valore va convertito in numero prima dell'invio
 NUMERIC_FIELDS = {"gross_pay", "net_pay", "total_deductions"}
@@ -18,7 +19,7 @@ INT_FIELDS = {"period_month", "period_year"}
 
 def _convert(field: str, raw: str):
     if field in NUMERIC_FIELDS:
-        return float(raw.replace(".", "").replace(",", ".").replace(" ", ""))
+        return parse_amount_input(raw)
     if field in INT_FIELDS:
         return int(raw)
     return raw
@@ -111,10 +112,7 @@ def render() -> None:
         st.success("Nessun documento da revisionare. Tutto pulito. ✅")
         return
 
-    options = {
-        f"{d['filename']} · {format_period(d.get('period_month'), d.get('period_year'))}": d["id"]
-        for d in candidates
-    }
+    options = document_options(candidates)
     choice = st.selectbox("Documento da revisionare", options.keys())
     try:
         doc = get_document(token, options[choice])

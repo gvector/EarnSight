@@ -83,10 +83,7 @@ def render() -> None:
         st.info("Nessun documento elaborato. Partiamo dall'upload?")
         return
 
-    options = {
-        f"{d['filename']} · {format_period(d.get('period_month'), d.get('period_year'))}": d["id"]
-        for d in docs
-    }
+    options = document_options(docs)
     default_id = st.session_state.pop("selected_document", None)
     default = next((k for k, v in options.items() if v == default_id), None)
     choice = st.selectbox(
