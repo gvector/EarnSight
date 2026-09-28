@@ -7,6 +7,7 @@ Produce campi canonici con confidenza e riga sorgente, più le voci di paga
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from app.services.extraction.result import NUMERIC_FIELDS, FieldProvenance
@@ -55,15 +56,117 @@ _ENTRIES_STOP_RE = re.compile(
 
 
 def parse_amount(raw: str) -> float:
-    """Converte un importo italiano ('1.234,56' / '250,00') in float."""
+    """Convert an Italian-formatted amount string to float.
+
+    Italian payslips print amounts with ``.`` as the thousands separator
+    and ``,`` as the decimal separator (e.g. ``1.234,56``). Stripping the
+    dots and swapping the comma for a dot yields a string the float
+    constructor understands.
+
+    Parameters
+    ----------
+    raw : str
+        Amount in Italian format, as matched by AMOUNT_PATTERN.
+
+    Returns
+    -------
+    float
+        Numeric value of the amount.
+
+    Raises
+    ------
+    ValueError
+        If ``raw`` is not a valid float after reformatting.
+
+    Dependencies
+    -----------
+    - parser.AMOUNT_PATTERN : the format this function expects.
+
+    Examples
+    --------
+    >>> parse_amount("1.234,56")
+    1234.56
+    >>> parse_amount("250,00")
+    250.0
+    """
     return float(raw.replace(".", "").replace(",", "."))
 
 
 def _field_value(value: Any, line: Line, confidence: float = 0.9) -> FieldProvenance:
+    """Wrap a parsed value in a FieldProvenance with its source line.
+
+    Parameters
+    ----------
+    value : Any
+        Parsed value.
+    line : Line
+        Source line the value was parsed from; its rendered text
+        becomes the provenance ``source``.
+    confidence : float, optional
+        Trust score; defaults to 0.9.
+
+    Returns
+    -------
+    FieldProvenance
+        New provenance with ``corrected`` left False.
+
+    Dependencies
+    -----------
+    - result.FieldProvenance.parsed : provenance constructor.
+
+    Examples
+    --------
+    >>> from app.services.extraction.text_layer import Line, Word
+    >>> line = Line(page=0, y=50.0, words=[
+    ...     Word("Periodo:", 0.0, 50.0, 40.0, 58.0, 0),
+    ...     Word("09/2026", 45.0, 50.0, 80.0, 58.0, 0)])
+    >>> pv = _field_value(9, line)
+    >>> (pv.value, pv.source)
+    (9, 'Periodo: 09/2026')
+    """
     return FieldProvenance.parsed(value, source=line.text, confidence=confidence)
 
 
 def _parse_total_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) -> None:
+    """Extract the total fields (gross, net, deductions) from labels.
+
+    Label-based matching: for each canonical total, the specific label
+    patterns are tried first (in declared order) because generic ones
+    would also match narrower labels - a bare ``Netto`` pattern would
+    capture ``Netto imponibile``. If no specific label matched, a second
+    pass retries with the generic pattern (the last of each list) so
+    loosely formatted payslips still yield the three totals.
+
+    Parameters
+    ----------
+    lines : list of Line
+        Text-layer lines of the payslip, in reading order.
+    fields : dict of str to Any
+        Parsed-field accumulator, keyed by canonical field name;
+        updated in place; existing keys are never overwritten.
+
+    Returns
+    -------
+    None
+
+    Dependencies
+    -----------
+    - parser._TOTAL_LABELS : ordered label patterns per total.
+    - parser.AMOUNT_PATTERN / parse_amount : amount matching and
+      conversion.
+    - parser._field_value : provenance wrapping.
+
+    Examples
+    --------
+    >>> from app.services.extraction.text_layer import Line, Word
+    >>> lines = [Line(page=0, y=50.0, words=[
+    ...     Word("Netto", 0.0, 50.0, 40.0, 58.0, 0),
+    ...     Word("1.750,00", 45.0, 50.0, 90.0, 58.0, 0)])]
+    >>> fields = {}
+    >>> _parse_total_fields(lines, fields)
+    >>> fields["net_pay"].value
+    1750.0
+    """
     for name in NUMERIC_FIELDS:
         for label in _TOTAL_LABELS[name]:
             pattern = re.compile(label + r"\s*:?\s*(" + AMOUNT_PATTERN + r")")
@@ -84,6 +187,43 @@ def _parse_total_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) ->
 
 
 def _parse_simple_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) -> None:
+    """Extract scalar fields: fiscal code, pay period, names, matricola.
+
+    Single pass over all lines, first match wins per field: the fiscal
+    code via its rigid 16-character regex, the pay period from an
+    ``MM/YYYY`` (or ``MM/YY``) notation with two-digit years normalised
+    to 2000+, and the remaining text labels (company, employee,
+    matricola) as label-colon-value pairs.
+
+    Parameters
+    ----------
+    lines : list of Line
+        Text-layer lines of the payslip, in reading order.
+    fields : dict of str to Any
+        Parsed-field accumulator, keyed by canonical field name;
+        updated in place; existing keys are never overwritten.
+
+    Returns
+    -------
+    None
+
+    Dependencies
+    -----------
+    - parser._FISCAL_CODE_RE / _PERIOD_RE / _TEXT_LABELS : matchers.
+    - parser._field_value : provenance wrapping.
+
+    Examples
+    --------
+    >>> from app.services.extraction.text_layer import Line, Word
+    >>> lines = [Line(page=0, y=20.0, words=[
+    ...     Word("Codice", 0.0, 20.0, 30.0, 28.0, 0),
+    ...     Word("fiscale:", 35.0, 20.0, 60.0, 28.0, 0),
+    ...     Word("RSSMRA80A01H501U", 65.0, 20.0, 120.0, 28.0, 0)])]
+    >>> fields = {}
+    >>> _parse_simple_fields(lines, fields)
+    >>> fields["fiscal_code"].value
+    'RSSMRA80A01H501U'
+    """
     for line in lines:
         if "fiscal_code" not in fields:
             match = _FISCAL_CODE_RE.search(line.text)
@@ -107,7 +247,47 @@ def _parse_simple_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) -
 
 
 def _parse_entries(lines: list[Line]) -> list[dict[str, Any]]:
-    """Riconosce le voci di paga dalle colonne 'Spettanze'/'Trattenute'."""
+    """Recognise payslip line items from the earnings/deductions table.
+
+    Locates the header row containing both the ``Spettanze`` and
+    ``Trattenute`` column labels and records their horizontal positions.
+    Each subsequent row is scanned until a totals label ends the table:
+    every Italian-format amount is attributed to the closer column header
+    (geometry-based classification), and the row's numeric code and the
+    remaining words become the item's code and description. Rows without
+    amounts are skipped.
+
+    Parameters
+    ----------
+    lines : list of Line
+        Text-layer lines of the payslip, in reading order.
+
+    Returns
+    -------
+    list of dict
+        Recognised entries, each with ``code``, ``description``,
+        ``amount`` and ``entry_type`` keys; empty when no table header
+        is found.
+
+    Dependencies
+    -----------
+    - parser._ENTRIES_STOP_RE : end-of-table detection.
+    - parser._AMOUNT_RE / _CODE_RE : amount and code matching.
+    - parser.parse_amount : Italian amount conversion.
+
+    Examples
+    --------
+    >>> from app.services.extraction.text_layer import Line, Word
+    >>> lines = [
+    ...     Line(page=0, y=10.0, words=[Word("Spettanze", 0.0, 10.0, 40.0, 18.0, 0),
+    ...                                Word("Trattenute", 100.0, 10.0, 140.0, 18.0, 0)]),
+    ...     Line(page=0, y=20.0, words=[Word("Stipendio", 0.0, 20.0, 40.0, 28.0, 0),
+    ...                               Word("1.500,00", 10.0, 20.0, 50.0, 28.0, 0)])]
+    >>> entries = _parse_entries(lines)
+    >>> (entries[0]["description"], entries[0]["amount"],
+    ...  entries[0]["entry_type"])
+    ('Stipendio', 1500.0, 'spettanza')
+    """
     header_idx, col_spett_x, col_tratt_x = None, None, None
     for i, line in enumerate(lines):
         by_text = {w.text.lower(): w for w in line.words}
@@ -156,9 +336,79 @@ def _parse_entries(lines: list[Line]) -> list[dict[str, Any]]:
 def parse_payslip(
     lines: list[Line],
 ) -> tuple[dict[str, FieldProvenance], list[dict[str, Any]]]:
-    """Parsing completo: restituisce (campi, voci)."""
+    """Full generic parsing of a payslip text layer.
+
+    Orchestrates the three generic passes - scalar fields, totals and
+    table entries - and returns them together. The registry
+    TEMPLATE_PARSERS points template-specific parsers at this same
+    contract; this function is the fallback when no tuned parser exists
+    for the detected template.
+
+    Parameters
+    ----------
+    lines : list of Line
+        Text-layer lines of the payslip, in reading order.
+
+    Returns
+    -------
+    tuple of (dict of str to FieldProvenance, list of dict)
+        Canonical fields keyed by name and the recognised entries.
+
+    Dependencies
+    -----------
+    - parser._parse_simple_fields / _parse_total_fields /
+      _parse_entries : the three passes.
+
+    Examples
+    --------
+    >>> from app.services.extraction.text_layer import Line, Word
+    >>> lines = [Line(page=0, y=50.0, words=[
+    ...     Word("Netto", 0.0, 50.0, 40.0, 58.0, 0),
+    ...     Word("1.750,00", 45.0, 50.0, 90.0, 58.0, 0)])]
+    >>> fields, entries = parse_payslip(lines)
+    >>> fields["net_pay"].value
+    1750.0
+    """
     fields: dict[str, dict[str, Any]] = {}
     _parse_simple_fields(lines, fields)
     _parse_total_fields(lines, fields)
     entries = _parse_entries(lines)
     return fields, entries
+
+
+# Registry per-template: detect_template sceglie il parser da qui. I parser
+# specifici (zucchetti, teamsystem, ...) si registrano man mano che vengono
+# tarati sui PDF reali; fino ad allora usano il fallback generico.
+TEMPLATE_PARSERS: dict[str, Callable[[list[Line]], tuple[dict, list[dict]]]] = {}
+
+
+def get_parser(template: str | None) -> Callable[[list[Line]], tuple[dict, list[dict]]]:
+    """Return the parser registered for a template, generic as fallback.
+
+    Looks up the detected template signature in TEMPLATE_PARSERS; when no
+    tuned parser has been registered yet (or the template is None), the
+    generic label-based ``parse_payslip`` is returned so the pipeline
+    always has a callable with the same contract.
+
+    Parameters
+    ----------
+    template : str or None
+        Template signature produced by ``detect_template``.
+
+    Returns
+    -------
+    Callable
+        Parser with the ``parse_payslip`` contract:
+        ``list[Line] -> (fields, entries)``.
+
+    Dependencies
+    -----------
+    - parser.TEMPLATE_PARSERS : per-template registry.
+    - parser.parse_payslip : generic fallback.
+
+    Examples
+    --------
+    >>> get_parser(None) is parse_payslip
+    True
+    """
+    return TEMPLATE_PARSERS.get(template or "generic", parse_payslip)

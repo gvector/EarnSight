@@ -28,6 +28,21 @@ il codice e le conversazioni allineati al dominio.
   validation, status. Unica interface consumata da pipeline, worker, API e
   (in Fase 2) frontend.
 - **FieldProvenance** — la shape di un Field: value, confidence, source, corrected.
+- **from_document** — la ricostruzione completa del risultato dal Document:
+  JSONB (fields/entries/issues/validation) + colonne dedicate (template,
+  raw_text, doc_type). Le route di correzione passano sempre da qui, così
+  template e raw_text sopravvivono a ogni PATCH.
+- **coerce_correction_value** — la coercizione tipizzata delle correzioni
+  (utente e LLM): INT_FIELDS interi, NUMERIC_FIELDS finiti; ValueError →
+  422 (input utente) o skip con warning (risposta LLM malformata).
+- **sync_database_url** — la derivazione dell'URL sync dal DATABASE_URL
+  (asyncpg→psycopg, aiosqlite→pysqlite), unica per worker, session sync e
+  Alembic; i driver sconosciuti falliscono all'avvio con un errore chiaro.
+- **TEMPLATE_PARSERS** — il registry che collega detect_template al parser
+  per-template (`parser.py`): il pipeline sceglie da qui, fallback generico.
+- **parse_cu** — il parser CU (label-based, quadro lavoro dipendente):
+  compenso lordo, ritenute, netto, anno; la validazione per la CU controlla
+  solo l'anno, non il mese.
 - **DocumentStatus** — il ciclo di vita di un Document: pending, processing,
   done, needs_review, needs_ocr, failed.
 - **apply_to_document** — la seam di proiezione del risultato sul Document
