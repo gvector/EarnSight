@@ -65,16 +65,27 @@ services:
       redis:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
+    # SPA React servita da nginx non-root; nginx inoltra /api al servizio api
     build: ./frontend
     ports:
-      - "8501:8501"
-    environment:
-      API_BASE_URL: http://api:8000
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

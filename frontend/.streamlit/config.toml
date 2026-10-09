@@ -1,9 +1,0 @@
-[theme]
-base = "light"
-primaryColor = "#059669"
-backgroundColor = "#fafaf9"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#1e293b"
-
-[server]
-headless = true
