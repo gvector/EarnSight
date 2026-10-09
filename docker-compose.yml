@@ -5,8 +5,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-earnsight}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-earnsight}
       POSTGRES_DB: ${POSTGRES_DB:-earnsight}
+    # solo da questa macchina (psql, api/worker lanciati fuori da Docker)
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,6 +18,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,11 +30,17 @@ services:
     build: ./backend
     env_file: .env
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
     # Lo schema nasce da Alembic (mai da create_all): prima migrazione, poi serve.
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +53,12 @@ services:
     volumes:
       - ./data:/data
     command: celery -A app.workers.celery_app:celery_app worker --loglevel=info
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app:celery_app inspect ping -d celery@$$HOSTNAME --timeout 5"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
