@@ -28,9 +28,9 @@ class User(Base):
 
     Examples
     --------
-    >>> user = User(username="giacomo", password_hash="$2b$12$...")
+    >>> user = User(username="mario", password_hash="$2b$12$...")
     >>> user.username
-    'giacomo'
+    'mario'
     """
 
     __tablename__ = "user"

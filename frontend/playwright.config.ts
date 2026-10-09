@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 // E2E contro lo stack Docker completo (nginx → api → worker). Lo stack va
-// avviato prima: vedi «Test end-to-end» in ARCHITECTURE.md.
+// avviato prima: `make e2e` lo crea, esegue i test e lo distrugge.
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,

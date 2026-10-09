@@ -1,4 +1,4 @@
-# Comandi del progetto. Guida completa: TEST.md.
+# Comandi del progetto.
 # Python sempre via $(PY) -m …: non dipende dal PATH né dagli script del venv.
 PY ?= .venv/bin/python
 PY_PATHS = backend tests scripts frontend/e2e

@@ -221,3 +221,7 @@ test-api.db
 
 # Cedolini reali di esempio (dati personali): mai in git
 example_ced/
+
+# Documentazione solo locale: nel repository resta soltanto il README pubblico
+*.md
+!README.md
