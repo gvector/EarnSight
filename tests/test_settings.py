@@ -1,10 +1,13 @@
 import pytest
 from app.core.crypto import decrypt_secret, encrypt_secret
+from conftest import TEST_PASSWORD
 from fastapi.testclient import TestClient
 
 
 def _login(test_client: TestClient) -> str:
-    resp = test_client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    resp = test_client.post(
+        "/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD}
+    )
     assert resp.status_code == 200
     return resp.json()["access_token"]
 
@@ -102,3 +105,36 @@ def test_placeholder_secret_key_is_detected():
     )
     assert Settings(secret_key="short").secret_key_is_placeholder is True
     assert Settings(secret_key="x" * 40).secret_key_is_placeholder is False
+
+
+def test_placeholder_auth_password_is_detected():
+    from app.core.config import Settings
+
+    for placeholder in ("", "admin", "change-me"):
+        assert Settings(auth_password=placeholder).auth_password_is_placeholder is True
+    assert Settings(auth_password="una-password-vera").auth_password_is_placeholder is False
+
+
+def test_startup_fails_with_placeholder_password(client, monkeypatch):
+    from app.core.config import settings
+    from app.main import app
+
+    monkeypatch.setattr(settings, "auth_password", "change-me")
+    with pytest.raises(RuntimeError, match="AUTH_PASSWORD"), TestClient(app):
+        pass
+
+
+def test_startup_syncs_admin_password_from_env(client, monkeypatch):
+    """Cambiare AUTH_PASSWORD nel .env deve cambiare la password davvero,
+    anche se l'utente admin esiste già (seed fatto a un avvio precedente)."""
+    from app.core.config import settings
+    from app.main import app
+
+    monkeypatch.setattr(settings, "auth_password", "nuova-password-ruotata")
+    with TestClient(app) as rotated:
+        old = rotated.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD})
+        new = rotated.post(
+            "/api/auth/login", json={"username": "admin", "password": "nuova-password-ruotata"}
+        )
+    assert old.status_code == 401
+    assert new.status_code == 200

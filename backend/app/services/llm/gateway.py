@@ -13,8 +13,12 @@ import json
 from typing import Any
 
 import httpx
+from cryptography.fernet import InvalidToken
+from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.crypto import decrypt_secret
+from app.models.setting import AppSetting
 
 _SYSTEM_PROMPT = (
     "Sei un estrattore di dati da cedolini paga italiani. Ti vengono forniti il "
@@ -25,30 +29,6 @@ _SYSTEM_PROMPT = (
     "tratto dal testo (numeri come decimali con punto, es. 2250.00). "
     "Se un campo non è presente nel testo, non includerlo nella risposta."
 )
-
-
-class LlmUnavailable(RuntimeError):
-    """Raised when no LLM gateway is configured or reachable.
-
-    Signals that the targeted LLM fallback correction cannot run (no
-    provider configured, missing credentials, or provider down), so the
-    caller can keep the document's deterministic-validation issues and
-    surface them to the user instead of silently dropping the fallback.
-
-    Dependencies
-    -----------
-    - builtins.RuntimeError : base class; the exception carries no extra
-      attributes, message-only semantics.
-
-    Examples
-    --------
-    >>> raise LlmUnavailable("no provider configured")  # doctest: +SKIP
-    Traceback (most recent call last):
-    ...
-    app.services.llm.gateway.LlmUnavailable: no provider configured
-    """
-
-    pass
 
 
 class BaseGateway:
@@ -495,98 +475,140 @@ class OllamaGateway(BaseGateway):
         return self._parse_response(content)
 
 
-def get_gateway() -> BaseGateway | None:
-    """Build the process-wide LLM gateway from environment settings.
+class LlmNotReady(Exception):
+    """No usable LLM provider for the user; the message says why.
 
-    Factory function selecting the provider adapter declared in the
-    application settings: OpenAI when ``llm_provider`` is ``"openai"``
-    and an API key is present, Ollama when it is ``"ollama"``. Returns
-    ``None`` when no valid configuration exists, in which case the
-    LLM fallback is disabled and deterministic validation issues are
-    surfaced to the user instead.
+    Raised instead of returning ``None`` so every caller gets the same
+    user-facing reason (no provider, OpenAI without key, stored key no
+    longer decryptable): the API maps it to a 400 and ``GET /settings``
+    reports it as ``llm_detail``, so UI and API cannot disagree.
+    """
+
+
+_NO_PROVIDER = "Nessun provider LLM configurato: scegli Ollama o OpenAI nelle Impostazioni"
+_NO_OPENAI_KEY = "OpenAI richiede una API key: inseriscila nelle Impostazioni"
+_NO_ENV_OPENAI_KEY = "LLM_PROVIDER=openai nel .env ma OPENAI_API_KEY è vuota"
+_UNREADABLE_KEY = (
+    "La API key OpenAI salvata non è più leggibile (SECRET_KEY cambiata?): "
+    "reinseriscila nelle Impostazioni"
+)
+
+
+def get_gateway() -> BaseGateway:
+    """Build the LLM gateway from environment settings (``.env``).
+
+    Fallback used when the user never saved LLM settings: OpenAI when
+    ``llm_provider`` is ``"openai"`` and an API key is present, Ollama
+    when it is ``"ollama"``.
 
     Returns
     -------
-    BaseGateway or None
-        The configured gateway adapter, or ``None`` if the provider is
-        unknown, unset, or lacks required credentials.
+    BaseGateway
+        The configured gateway adapter.
+
+    Raises
+    ------
+    LlmNotReady
+        If the provider is unset or unknown, or OpenAI lacks its key.
 
     Dependencies
     -----------
     - app.core.config.settings : provider, credentials, and model names.
-    - OpenAiGateway : adapter returned for the ``openai`` provider.
-    - OllamaGateway : adapter returned for the ``ollama`` provider.
-
-    Examples
-    --------
-    >>> gw = get_gateway()
-    >>> gw is None or isinstance(gw, BaseGateway)
-    True
+    - OpenAiGateway / OllamaGateway : adapters returned per provider.
     """
-    if settings.llm_provider == "openai" and settings.openai_api_key:
+    if settings.llm_provider == "openai":
+        if not settings.openai_api_key:
+            raise LlmNotReady(_NO_ENV_OPENAI_KEY)
         return OpenAiGateway(settings.openai_api_key, settings.openai_model)
     if settings.llm_provider == "ollama":
         return OllamaGateway(settings.ollama_base_url, settings.ollama_model)
-    return None
+    raise LlmNotReady(_NO_PROVIDER)
 
 
-async def get_gateway_for_user(db, user) -> BaseGateway | None:  # noqa: ANN001
-    """Build the gateway from the user's stored settings (DB), env as fallback.
+def gateway_from_settings(row: AppSetting | None) -> BaseGateway:
+    """Build the gateway from a user's stored settings, ``.env`` as fallback.
 
-    Constructs the LLM adapter from the per-user ``AppSetting`` row
-    when present, falling back to ``get_gateway()`` (environment
-    settings) when the user has no stored configuration. The OpenAI
-    API key is encrypted at rest and decrypted only here, at adapter
-    construction time, so plaintext credentials never persist in
-    memory-bound rows or logs.
+    The single rule deciding whether an LLM provider is usable: the
+    stored row wins when present (an explicit "no provider" included),
+    otherwise ``get_gateway()`` applies the environment settings. Like
+    models and URLs, a missing stored OpenAI key falls back to
+    ``OPENAI_API_KEY`` from ``.env``. The stored key is encrypted at rest
+    and decrypted only here; a key encrypted under a previous SECRET_KEY
+    is reported (no silent fallback), not raised as ``InvalidToken``.
 
     Parameters
     ----------
-    db : AsyncSession
-        SQLAlchemy async session used to query the user's settings; a
-        ``select`` on ``AppSetting`` filtered by ``user_id`` is
-        executed.
-    user : User
-        Authenticated user whose settings are consulted; only ``id``
-        is accessed.
+    row : AppSetting or None
+        The user's stored LLM settings, or ``None`` if never saved.
 
     Returns
     -------
-    BaseGateway or None
-        The gateway built from the user's settings, the environment
-        fallback via ``get_gateway()`` when no settings row exists, or
-        ``None`` when the stored provider is unknown or lacks required
-        credentials.
+    BaseGateway
+        The gateway adapter ready to call.
+
+    Raises
+    ------
+    LlmNotReady
+        With the user-facing reason when no usable provider exists.
 
     Dependencies
     -----------
-    - app.models.setting.AppSetting : ORM model holding per-user LLM
-      configuration.
     - app.core.crypto.decrypt_secret : decrypts the stored OpenAI key.
     - get_gateway : environment-based fallback factory.
     - OpenAiGateway / OllamaGateway : adapters built from the settings.
-
-    Examples
-    --------
-    >>> gw = await get_gateway_for_user(db, current_user)  # doctest: +SKIP
-    >>> gw is None or gw.name in ("openai", "ollama")  # doctest: +SKIP
-    True
     """
-    from sqlalchemy import select
-
-    from app.core.crypto import decrypt_secret
-    from app.models.setting import AppSetting
-
-    result = await db.execute(select(AppSetting).where(AppSetting.user_id == user.id))
-    row = result.scalar_one_or_none()
     if row is None:
         return get_gateway()
-    if row.llm_provider == "openai" and row.openai_api_key_encrypted:
-        api_key = decrypt_secret(row.openai_api_key_encrypted)
+    if row.llm_provider == "openai":
+        if row.openai_api_key_encrypted:
+            try:
+                api_key = decrypt_secret(row.openai_api_key_encrypted)
+            except InvalidToken:
+                raise LlmNotReady(_UNREADABLE_KEY) from None
+        else:
+            api_key = settings.openai_api_key  # come modello e URL: fallback .env
+        if not api_key:
+            raise LlmNotReady(_NO_OPENAI_KEY)
         return OpenAiGateway(api_key, row.openai_model or settings.openai_model)
     if row.llm_provider == "ollama":
         return OllamaGateway(
             row.ollama_base_url or settings.ollama_base_url,
             row.ollama_model or settings.ollama_model,
         )
-    return None
+    raise LlmNotReady(_NO_PROVIDER)
+
+
+async def get_gateway_for_user(db, user) -> BaseGateway:  # noqa: ANN001
+    """Load the user's stored LLM settings and build the gateway from them.
+
+    Parameters
+    ----------
+    db : AsyncSession
+        Async session used to query the user's ``AppSetting`` row.
+    user : User
+        Authenticated user whose settings are consulted; only ``id``
+        is accessed.
+
+    Returns
+    -------
+    BaseGateway
+        See ``gateway_from_settings``.
+
+    Raises
+    ------
+    LlmNotReady
+        With the user-facing reason when no usable provider exists.
+
+    Dependencies
+    -----------
+    - app.models.setting.AppSetting : per-user LLM configuration.
+    - gateway_from_settings : the readiness rule.
+
+    Examples
+    --------
+    >>> gw = await get_gateway_for_user(db, current_user)  # doctest: +SKIP
+    >>> gw.name in ("openai", "ollama")  # doctest: +SKIP
+    True
+    """
+    result = await db.execute(select(AppSetting).where(AppSetting.user_id == user.id))
+    return gateway_from_settings(result.scalar_one_or_none())

@@ -3,18 +3,24 @@
 - correzioni che non azzerano template/raw_text (round-trip su Document)
 - 422 (non 500) su input non numerico
 - 502 gestito su risposta LLM malformata
-- scoping per utente: documenti senza user_id invisibili
+- scoping per utente: documenti di altri utenti invisibili, user_id obbligatorio
 - limite dimensione upload (413)
 - dispatch inline funzionante fuori da Postgres (sqlite, senza session factory iniettata)
+- firma %PDF obbligatoria sull'upload
+- messaggio esplicito se il provider OpenAI non ha API key
 """
 
 import asyncio
 import uuid
 
 import pytest
+from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
 from app.models.payslip import PayslipDocument
+from app.models.user import User
 from app.workers.tasks import process_document
+from conftest import TEST_PASSWORD
+from sqlalchemy.exc import IntegrityError
 
 
 @pytest.fixture
@@ -29,7 +35,7 @@ def inline_processing(monkeypatch):
 
 @pytest.fixture
 def token(client):
-    resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    resp = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD})
     assert resp.status_code == 200
     return resp.json()["access_token"]
 
@@ -74,6 +80,40 @@ def test_upload_rejects_non_pdf(client, token):
         files={"file": ("cedolino.txt", b"testo", "text/plain")},
     )
     assert resp.status_code == 400
+
+
+def test_upload_rejects_pdf_name_without_pdf_signature(client, token):
+    resp = client.post(
+        "/api/payslips/upload",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("cedolino.pdf", b"<html>non un pdf</html>", "application/pdf")},
+    )
+    assert resp.status_code == 400
+    assert "PDF" in resp.json()["detail"]
+
+
+def test_llm_resolve_openai_without_key_explains_missing_key(
+    client, token, payslip_pdf, inline_processing
+):
+    from conftest import build_pdf
+
+    path = payslip_pdf.parent / "bad.pdf"
+    build_pdf(
+        path,
+        lambda net: [
+            "Compenso Lordo: 2.500,00",
+            "Totale Trattenute: 250,00",
+            f"Netto da pagare: {net}",
+        ],
+        net_value="1.900,00",
+    )
+    doc_id = _upload(client, token, path)["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.put("/api/settings", headers=headers, json={"llm_provider": "openai"}).is_success
+
+    resp = client.post(f"/api/payslips/{doc_id}/llm-resolve", headers=headers)
+    assert resp.status_code == 400
+    assert "API key" in resp.json()["detail"]
 
 
 def test_patch_correction_preserves_template_and_raw_text(
@@ -148,28 +188,49 @@ def test_llm_resolve_with_malformed_response_is_handled(
     assert detail.json()["template"] == "generic"
 
 
-def test_documents_without_user_are_invisible(client, token):
-    async def _insert_orphan_doc():
+def test_documents_of_another_user_are_invisible(client, token):
+    async def _insert_foreign_doc():
         async with AsyncSessionLocal() as db:
+            other = User(username="altro", password_hash=hash_password("altra-password"))
+            db.add(other)
+            await db.flush()
             doc = PayslipDocument(
                 id=uuid.uuid4(),
-                user_id=None,
-                filename="orfanella.pdf",
-                stored_path="/tmp/orfanella.pdf",
+                user_id=other.id,
+                filename="altrui.pdf",
+                stored_path="/tmp/altrui.pdf",
                 status="done",
             )
             db.add(doc)
             await db.commit()
             return doc.id
 
-    orphan_id = asyncio.run(_insert_orphan_doc())
+    foreign_id = asyncio.run(_insert_foreign_doc())
 
     resp = client.get("/api/payslips", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert all(doc["id"] != str(orphan_id) for doc in resp.json())
+    assert all(doc["id"] != str(foreign_id) for doc in resp.json())
 
-    resp = client.get(f"/api/payslips/{orphan_id}", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get(f"/api/payslips/{foreign_id}", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 404
+
+
+def test_document_without_owner_is_rejected_by_the_database(client):
+    async def _insert_orphan_doc():
+        async with AsyncSessionLocal() as db:
+            db.add(
+                PayslipDocument(
+                    id=uuid.uuid4(),
+                    user_id=None,
+                    filename="orfano.pdf",
+                    stored_path="/tmp/orfano.pdf",
+                    status="done",
+                )
+            )
+            await db.commit()
+
+    with pytest.raises(IntegrityError):
+        asyncio.run(_insert_orphan_doc())
 
 
 def test_upload_requires_auth(client):

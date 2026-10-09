@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import DB, CurrentUser
+from app.core.config import settings
 from app.core.crypto import encrypt_secret
 from app.models.setting import AppSetting
 from app.schemas.settings import SettingsIn, SettingsOut
+from app.services.llm.gateway import LlmNotReady, gateway_from_settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -35,12 +37,17 @@ def _to_out(row: AppSetting | None) -> SettingsOut:
     """Project a settings row onto the outbound schema.
 
     The stored OpenAI key is never returned: the API only reports whether
-    one has been set, so the secret stays server-side.
+    one has been set, so the secret stays server-side. Readiness comes
+    from ``gateway_from_settings``, the same rule ``llm-resolve`` applies,
+    so the UI enables the LLM button exactly when the API would accept it.
+    Fields not stored (or no row at all) show the non-secret ``.env``
+    values the gateway would use, so the form shows the configuration
+    actually in use and saving it untouched keeps it working.
 
     Parameters
     ----------
     row : AppSetting | None
-        Persisted settings row, or ``None`` for defaults.
+        Persisted settings row, or ``None`` when never saved (``.env``).
 
     Returns
     -------
@@ -48,14 +55,23 @@ def _to_out(row: AppSetting | None) -> SettingsOut:
         Response-shaped settings with ``openai_api_key_set`` as a boolean
         presence flag instead of the encrypted value.
     """
-    if row is None:
-        return SettingsOut()
+    try:
+        gateway = gateway_from_settings(row)
+    except LlmNotReady as exc:
+        llm_ready, llm_detail = False, str(exc)
+    else:
+        source = "impostazioni utente" if row is not None else "configurazione del server (.env)"
+        llm_ready, llm_detail = True, f"{gateway.name} · {source}"
+    # stessa regola del gateway: valore salvato, altrimenti .env
+    stored = row or AppSetting()
     return SettingsOut(
-        llm_provider=row.llm_provider,
-        ollama_base_url=row.ollama_base_url,
-        ollama_model=row.ollama_model,
-        openai_model=row.openai_model,
-        openai_api_key_set=row.openai_api_key_encrypted is not None,
+        llm_provider=stored.llm_provider if row else settings.llm_provider or None,
+        ollama_base_url=stored.ollama_base_url or settings.ollama_base_url,
+        ollama_model=stored.ollama_model or settings.ollama_model,
+        openai_model=stored.openai_model or settings.openai_model,
+        openai_api_key_set=stored.openai_api_key_encrypted is not None,
+        llm_ready=llm_ready,
+        llm_detail=llm_detail,
     )
 
 

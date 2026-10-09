@@ -29,8 +29,8 @@ class PayslipDocument(Base):
     ----------
     id : Uuid, primary key, default uuid4
         Unique identifier of the document.
-    user_id : Integer, FK ``user.id``, nullable, indexed
-        Owner of the document; ``None`` for unowned documents.
+    user_id : Integer, FK ``user.id``, NOT NULL, indexed
+        Owner of the document; every route filters on it.
     doc_type : String(16), default ``"cedolino"``
         Document kind: ``"cedolino"`` (monthly payslip) or ``"cu"``
         (annual Certificazione Unica).
@@ -91,7 +91,7 @@ class PayslipDocument(Base):
     __tablename__ = "payslip_document"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     doc_type: Mapped[str] = mapped_column(String(16), default="cedolino")  # cedolino | cu
     filename: Mapped[str] = mapped_column(String(512))
     stored_path: Mapped[str] = mapped_column(String(1024))

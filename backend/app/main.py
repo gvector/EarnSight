@@ -10,7 +10,7 @@ from app.api.routes.payslips import router as payslips_router
 from app.api.routes.settings import router as settings_router
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.db.session import AsyncSessionLocal
 from app.models.user import User
 
@@ -22,7 +22,10 @@ async def lifespan(_app: FastAPI):
     Runs once at startup: it activates logging, hard-fails while SECRET_KEY
     is still a placeholder (the Fernet key that protects stored API keys
     derives from it, so starting with the placeholder would strand every
-    encrypted secret), and seeds the bootstrap admin user when missing.
+    encrypted secret) or while AUTH_PASSWORD is a known default, and seeds
+    the bootstrap admin user. In single-user mode ``.env`` is the source of
+    truth for the password: an existing admin whose hash no longer matches
+    AUTH_PASSWORD is re-hashed, so rotating the password in ``.env`` works.
     The parameter is unused because the hook is bound to the module-level
     ``app`` instance directly.
 
@@ -40,13 +43,15 @@ async def lifespan(_app: FastAPI):
     ------
     RuntimeError
         If SECRET_KEY is a known placeholder or shorter than the minimum
-        length, with instructions for generating a replacement.
+        length, with instructions for generating a replacement; or if
+        AUTH_PASSWORD is empty or a known default.
 
     Dependencies
     -----------
     - app.core.logging.setup_logging : configures the root logger.
     - app.core.config.settings : secret key check and admin credentials.
     - app.core.security.hash_password : hashes the seeded admin password.
+    - app.core.security.verify_password : detects a rotated AUTH_PASSWORD.
     - app.db.session.AsyncSessionLocal : startup database session.
     - app.models.user.User : bootstrap account model.
     """
@@ -57,15 +62,23 @@ async def lifespan(_app: FastAPI):
             '`python -c "import secrets; print(secrets.token_urlsafe(48))"` '
             "e mettila nel .env. Da essa deriva la chiave Fernet delle API key."
         )
+    if settings.auth_password_is_placeholder:
+        raise RuntimeError(
+            "AUTH_PASSWORD vuota o di default (admin/change-me): impostane una vera nel .env."
+        )
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.username == settings.auth_username))
-        if result.scalar_one_or_none() is None:
+        user = result.scalar_one_or_none()
+        if user is None:
             db.add(
                 User(
                     username=settings.auth_username,
                     password_hash=hash_password(settings.auth_password),
                 )
             )
+            await db.commit()
+        elif not verify_password(settings.auth_password, user.password_hash):
+            user.password_hash = hash_password(settings.auth_password)
             await db.commit()
     yield
 

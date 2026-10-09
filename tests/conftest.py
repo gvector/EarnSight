@@ -7,11 +7,14 @@ import tempfile
 # sqlite+aiosqlite rende l'API testabile (lifespan + TestClient) senza Postgres;
 # credenziali e SECRET_KEY espliciti perché il .env di sviluppo non influenzi
 # il seed né il fail-fast sul segreto placeholder.
-_test_db = os.path.join(os.path.dirname(__file__), f".test-api-{os.getpid()}.sqlite3")
+# Tutto in una dir temporanea: nessun file sqlite lasciato in tests/.
+_tmp_dir = tempfile.mkdtemp(prefix="earnsight-test-")
+TEST_PASSWORD = "test-password-not-for-production"
+_test_db = os.path.join(_tmp_dir, "api.sqlite3")
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_test_db}")
-os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="earnsight-test-"))
+os.environ.setdefault("DATA_DIR", _tmp_dir)
 os.environ.setdefault("AUTH_USERNAME", "admin")
-os.environ.setdefault("AUTH_PASSWORD", "admin")
+os.environ.setdefault("AUTH_PASSWORD", TEST_PASSWORD)
 os.environ.setdefault("SECRET_KEY", "test-secret-key-above-32-chars-not-for-production")
 
 import app.models.payslip  # noqa: E402,F401  (registra i modelli su Base.metadata)
@@ -122,6 +125,7 @@ def client():
 
     async def _create_schema():
         async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)  # isolamento fra test
             await conn.run_sync(Base.metadata.create_all)
 
     asyncio.run(_create_schema())

@@ -8,6 +8,8 @@ _PLACEHOLDER_SECRET_KEYS = frozenset(
     {"dev-secret-change-me", "change-me", "change-me-with-a-long-random-string"}
 )
 MIN_SECRET_KEY_LENGTH = 32
+# Password di bootstrap note: l'avvio fallisce se AUTH_PASSWORD è una di queste.
+_PLACEHOLDER_PASSWORDS = frozenset({"", "admin", "change-me"})
 
 # Driver async → controparte sync: la derivazione copre solo i driver noti e
 # fallisce in modo chiaro sugli altri, invece di produrre un URL rotto.
@@ -70,6 +72,8 @@ class Settings(BaseSettings):
         Derive the sync-driver URL for workers and Alembic.
     secret_key_is_placeholder
         Report whether the master secret is still unsafe.
+    auth_password_is_placeholder
+        Report whether the bootstrap password is still a known default.
     max_upload_bytes
         Express the upload cap in bytes.
 
@@ -158,6 +162,21 @@ class Settings(BaseSettings):
             self.secret_key in _PLACEHOLDER_SECRET_KEYS
             or len(self.secret_key) < MIN_SECRET_KEY_LENGTH
         )
+
+    @property
+    def auth_password_is_placeholder(self) -> bool:
+        """bool: Whether AUTH_PASSWORD is empty or a known default.
+
+        Same guard as ``secret_key_is_placeholder`` for the bootstrap
+        account: an app holding payroll data must not start with a
+        password anyone can guess from the repository.
+
+        Returns
+        -------
+        bool
+            True when the password must be replaced before startup.
+        """
+        return self.auth_password in _PLACEHOLDER_PASSWORDS
 
     @property
     def max_upload_bytes(self) -> int:

@@ -17,7 +17,7 @@ from app.services.extraction.result import (
     apply_to_document,
     coerce_correction_value,
 )
-from app.services.llm.gateway import get_gateway_for_user
+from app.services.llm.gateway import LlmNotReady, get_gateway_for_user
 from app.workers.dispatch import dispatch_processing
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,7 @@ async def upload_payslip(
     HTTPException
         400 — filename does not end with ``.pdf``.
         400 — ``doc_type`` is not ``"cedolino"`` or ``"cu"``.
+        400 — content does not start with the ``%PDF`` signature.
         413 — file exceeds ``settings.max_upload_bytes``.
 
     Dependencies
@@ -137,13 +138,15 @@ async def upload_payslip(
 
     doc_id = uuid.uuid4()
     dest = Path(settings.data_dir) / "pdfs" / f"{doc_id}.pdf"
-    dest.parent.mkdir(parents=True, exist_ok=True)
     content = await file.read(settings.max_upload_bytes + 1)
     if len(content) > settings.max_upload_bytes:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             f"File troppo grande: massimo {settings.max_upload_mb} MB",
         )
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Il file non è un PDF valido")
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(content)
 
     doc = PayslipDocument(
@@ -377,8 +380,9 @@ async def llm_resolve_fields(
     ------
     HTTPException
         404 — document not found or owned by another user.
-        400 — no LLM provider configured for the user, or no issue-flagged
-        fields to resolve.
+        400 — no usable LLM provider for the user (none selected, OpenAI
+        without an API key, or a stored key no longer decryptable after a
+        SECRET_KEY change), or no issue-flagged fields to resolve.
         502 — the gateway call fails, or no usable values come back.
 
     Dependencies
@@ -390,12 +394,10 @@ async def llm_resolve_fields(
       projection onto the PayslipDocument row.
     """
     doc = await _get_document(doc_id, db, user)
-    gateway = await get_gateway_for_user(db, user)
-    if gateway is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Nessun provider LLM configurato (LLM_PROVIDER vuoto)",
-        )
+    try:
+        gateway = await get_gateway_for_user(db, user)
+    except LlmNotReady as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     result = ExtractionResult.from_document(doc)
 
     field_names = result.issue_fields()

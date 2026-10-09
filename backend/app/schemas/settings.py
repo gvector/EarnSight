@@ -21,6 +21,12 @@ class SettingsOut(BaseModel):
         Model name requested from OpenAI.
     openai_api_key_set : bool
         True when an (encrypted) OpenAI API key is stored.
+    llm_ready : bool
+        True when LLM resolution would find a usable provider, from the
+        stored settings or, if never saved, from ``.env``.
+    llm_detail : str
+        The provider in use and its source when ready, otherwise the
+        reason it is not (shown by the UI as-is).
 
     Dependencies
     -----------
@@ -38,6 +44,8 @@ class SettingsOut(BaseModel):
     ollama_model: str | None = None
     openai_model: str | None = None
     openai_api_key_set: bool = False
+    llm_ready: bool = False
+    llm_detail: str = ""
 
 
 class SettingsIn(BaseModel):
