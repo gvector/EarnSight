@@ -6,6 +6,7 @@ import app.models.user  # noqa: F401
 import pytest
 from app.db.base import Base
 from app.models.payslip import PayslipDocument, PayslipEntry
+from app.models.user import User
 from app.services.extraction.runner import process_document_sync
 from app.workers.dispatch import dispatch_processing
 from app.workers.tasks import process_document
@@ -22,7 +23,11 @@ def session_factory(tmp_path):
 
 def _make_document(session_factory, stored_path) -> object:
     with session_factory() as db:
+        owner = User(username="owner", password_hash="x")  # user_id è obbligatorio
+        db.add(owner)
+        db.flush()
         doc = PayslipDocument(
+            user_id=owner.id,
             filename="cedolino.pdf",
             stored_path=str(stored_path),
             status="pending",
@@ -105,3 +110,18 @@ def test_dispatch_inline_fallback_when_broker_down(session_factory, payslip_pdf,
     with session_factory() as db:
         doc = db.get(PayslipDocument, doc_id)
         assert doc.status == "done"
+
+
+def test_unreachable_broker_fails_fast(monkeypatch):
+    """Broker giù → il dispatch ripiega inline in fretta (prima: ~19 s di retry del
+    result backend, inutilizzato: il risultato del job va nel database)."""
+    import time
+
+    from app.workers.celery_app import celery_app
+
+    assert celery_app.conf.result_backend is None
+    monkeypatch.setattr(celery_app.conf, "broker_url", "redis://localhost:6399/0")
+    start = time.monotonic()
+    with pytest.raises(Exception):  # noqa: B017 — kombu solleva OperationalError
+        process_document.delay("00000000-0000-0000-0000-000000000000")
+    assert time.monotonic() - start < 5
