@@ -82,7 +82,7 @@ def test_to_jsonb_from_jsonb_roundtrip(payslip_pdf):
     result = run_extraction(payslip_pdf)
     data = result.to_jsonb()
 
-    assert set(data) == {"fields", "entries", "issues", "validation"}
+    assert set(data) == {"fields", "entries", "issues", "validation", "pages"}
     rebuilt = ExtractionResult.from_jsonb(data)
     assert rebuilt.fields["net_pay"].value == result.fields["net_pay"].value
     assert rebuilt.validation.passed is True

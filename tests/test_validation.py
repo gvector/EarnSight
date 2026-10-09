@@ -107,3 +107,17 @@ def test_document_status_enum_matches_db_strings():
         "needs_ocr",
         "failed",
     }
+
+
+def test_rounding_closes_the_net_equation():
+    """Zucchetti: lordo − trattenute + arrotondamento = netto (2500 − 250 + 0,40)."""
+    fields = _fields(net_pay=FieldProvenance(value=2250.40), rounding=FieldProvenance(value=0.40))
+    report = run_validation(fields, _entries())
+    assert report["passed"] is True, report["errors"]
+
+
+def test_rounding_mismatch_is_still_an_error():
+    fields = _fields(net_pay=FieldProvenance(value=2251.00), rounding=FieldProvenance(value=0.40))
+    report = run_validation(fields, _entries())
+    check = next(e for e in report["errors"] if e["check"] == "net_consistency")
+    assert "arrotondamento" in check["message"]

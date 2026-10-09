@@ -118,6 +118,12 @@ class PayslipDocument(Base):
         back_populates="document", cascade="all, delete-orphan", lazy="selectin"
     )
 
+    @property
+    def additional_payment(self) -> bool:
+        """bool: True for a 13th/14th month payslip (``additional_payment`` field)."""
+        field = ((self.extraction or {}).get("fields") or {}).get("additional_payment") or {}
+        return field.get("value") is True
+
 
 class PayslipEntry(Base):
     """A single pay entry recognized in a payslip (spettanza/trattenuta).

@@ -87,6 +87,94 @@ def build_cu_pdf(path):
     doc.close()
 
 
+# Cedolino Zucchetti sintetico: coordinate dal layout reale, dati inventati.
+# Le etichette riproducono il text layer reale, che mette «s» al posto degli
+# spazi («TOTALEsCOMPETENZE»). Totali: 2.005,00 − 434,66 + 0,66 = 1.571,00.
+ZUCCHETTI_ENTRIES = [
+    # (codice, descrizione, importo base, riferimento, trattenuta, competenza)
+    ("000014", "Retribuzione", "80,00000", "26,00000 GG", None, "2.000,00"),
+    ("001201", "Ente Bilaterale Commercio", None, None, None, "5,00"),
+    ("ZP9960", "Arrotond. mese pr.", None, None, "0,40", None),
+    ("Z00000", "Contributo IVS", "2.005,00", "9,19000 %", "184,26", None),
+    # quota a carico ditta: importo tra parentesi, informativo, fuori dai totali
+    ("002400", "Contributo Previras", "C/Ditta", "1,55000 %", None, "( 31,10 )"),
+    ("F02000", "Imponibile IRPEF", "1.820,74", None, None, None),  # solo informativa
+    ("F03020", "Ritenute IRPEF", None, None, "250,00", None),
+]
+
+
+def _put(page, x, y, text, size=8):
+    page.insert_text((x, y), text, fontname="helv", fontsize=size)
+
+
+def _zucchetti_payslip_page(doc, period, entries, rounding, net):
+    page = doc.new_page(width=595, height=842)
+    _put(page, 86, 28, "RagionesSociale", 5)
+    _put(page, 85, 38, "AZIENDA ESEMPIO S.P.A.")
+    _put(page, 28, 78, "CodicesFiscale", 5)  # CF azienda: non va confuso col dipendente
+    _put(page, 26, 88, "01234567890")
+    _put(page, 433, 102, "PERIODOsDIsRETRIBUZIONE", 5)
+    _put(page, 430, 114, period)
+    for x, label in [(31, "Codicesdipendente"), (98, "COGNOMEsEsNOME"),
+                     (448, "CodicesFiscale"), (549, "sMatricola")]:  # fmt: skip
+        _put(page, x, 137, label, 5)
+    for x, value in [(29, "0000123"), (99, "ROSSI MARIO"), (449, "RSSMRA80A01H501U")]:
+        _put(page, x, 148, value)
+    _put(page, 520, 257, "TOTALE", 6)
+    _put(page, 525, 270, "1.900,00000")  # paga base mensile: non è il lordo
+    for x, label in [(86, "VOCIsVARIABILIsDELsMESE"), (251, "IMPORTOsBASE"),
+                     (352, "RIFERIMENTO"), (448, "TRATTENUTE"), (518, "COMPETENZE")]:  # fmt: skip
+        _put(page, x, 282, label, 5)
+    y = 296
+    for code, desc, base, ref, tratt, comp in entries:
+        if code:
+            _put(page, 39, y, code)
+        _put(page, 69, y, desc)
+        for x, value in [(281, base), (368, ref), (462, tratt), (537, comp)]:
+            if value:
+                _put(page, x, y, value)
+        y += 10.4
+    _put(page, 28, 616, "CONGUAGLIO", 5)
+    _put(page, 28, 652, "PROGRESSIVI", 5)
+    _put(page, 99, 668, "9.876,00")  # progressivi: fuori dalla tabella voci
+    for y, label, value in [(703, "TOTALEsCOMPETENZE", "2.005,00"),
+                            (717, "TOTALEsTRATTENUTE", "434,66"),
+                            (729, "ARROTONDAMENTO", rounding)]:  # fmt: skip
+        _put(page, 425, y, label, 6)
+        _put(page, 547, y, value)
+    _put(page, 487, 736, "NETTOsDELsMESE", 5)
+    _put(page, 510, 748, f"{net} €", 10)
+    _put(page, 187, 818, "Zucchetti spa, Autorizzazione Inail n. 299 del 15/01/2009")
+
+
+def _zucchetti_attendance_page(doc, period):
+    page = doc.new_page(width=595, height=842)
+    _put(page, 52, 432, "PERIODOsDIsRIFERIMENTO", 5)
+    _put(page, 49, 444, period)
+    for x, label in [(48, "GIORNO"), (150, "ORE"), (360, "GIUSTIFICATIVI"), (700, "TIMBRATURE")]:
+        _put(page, x * 595 / 910, 470, label, 5)
+    for day in range(1, 23):
+        _put(page, 46, 480 + day * 11.6, f"LU {day}   8,00")
+    _put(page, 187, 818, "Zucchetti spa, Autorizzazione Inail n. 301 del 15/01/2009")
+
+
+def build_zucchetti_pdf(
+    path,
+    period="Aprile 2026",
+    attendance_period=None,
+    entries=ZUCCHETTI_ENTRIES,
+    rounding="0,66",
+    net="1.571,00",
+):
+    """Cedolino Zucchetti; con attendance_period antepone il foglio presenze."""
+    doc = fitz.open()
+    if attendance_period:
+        _zucchetti_attendance_page(doc, attendance_period)
+    _zucchetti_payslip_page(doc, period, entries, rounding, net)
+    doc.save(path)
+    doc.close()
+
+
 @pytest.fixture
 def payslip_pdf(tmp_path):
     path = tmp_path / "cedolino.pdf"

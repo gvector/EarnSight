@@ -7,7 +7,6 @@ Produce campi canonici con confidenza e riga sorgente, più le voci di paga
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from typing import Any
 
 from app.services.extraction.result import NUMERIC_FIELDS, FieldProvenance
@@ -133,9 +132,8 @@ def _parse_total_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) ->
     Label-based matching: for each canonical total, the specific label
     patterns are tried first (in declared order) because generic ones
     would also match narrower labels - a bare ``Netto`` pattern would
-    capture ``Netto imponibile``. If no specific label matched, a second
-    pass retries with the generic pattern (the last of each list) so
-    loosely formatted payslips still yield the three totals.
+    capture ``Netto imponibile``. The generic pattern sits last in each
+    list, so loosely formatted payslips still yield the three totals.
 
     Parameters
     ----------
@@ -176,14 +174,6 @@ def _parse_total_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) ->
                 match = pattern.search(line.text)
                 if match:
                     fields[name] = _field_value(parse_amount(match.group(1)), line)
-    for name in NUMERIC_FIELDS:
-        if name not in fields:
-            generic = re.compile(_TOTAL_LABELS[name][-1] + r"\s*:?\s*(" + AMOUNT_PATTERN + r")")
-            for line in lines:
-                match = generic.search(line.text)
-                if match:
-                    fields[name] = _field_value(parse_amount(match.group(1)), line)
-                    break
 
 
 def _parse_simple_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) -> None:
@@ -339,10 +329,9 @@ def parse_payslip(
     """Full generic parsing of a payslip text layer.
 
     Orchestrates the three generic passes - scalar fields, totals and
-    table entries - and returns them together. The registry
-    TEMPLATE_PARSERS points template-specific parsers at this same
-    contract; this function is the fallback when no tuned parser exists
-    for the detected template.
+    table entries - and returns them together. Template-specific parsers
+    (``pipeline.TEMPLATE_PARSERS``) share this contract; this function is
+    the fallback when no tuned parser exists for the detected template.
 
     Parameters
     ----------
@@ -374,41 +363,3 @@ def parse_payslip(
     _parse_total_fields(lines, fields)
     entries = _parse_entries(lines)
     return fields, entries
-
-
-# Registry per-template: detect_template sceglie il parser da qui. I parser
-# specifici (zucchetti, teamsystem, ...) si registrano man mano che vengono
-# tarati sui PDF reali; fino ad allora usano il fallback generico.
-TEMPLATE_PARSERS: dict[str, Callable[[list[Line]], tuple[dict, list[dict]]]] = {}
-
-
-def get_parser(template: str | None) -> Callable[[list[Line]], tuple[dict, list[dict]]]:
-    """Return the parser registered for a template, generic as fallback.
-
-    Looks up the detected template signature in TEMPLATE_PARSERS; when no
-    tuned parser has been registered yet (or the template is None), the
-    generic label-based ``parse_payslip`` is returned so the pipeline
-    always has a callable with the same contract.
-
-    Parameters
-    ----------
-    template : str or None
-        Template signature produced by ``detect_template``.
-
-    Returns
-    -------
-    Callable
-        Parser with the ``parse_payslip`` contract:
-        ``list[Line] -> (fields, entries)``.
-
-    Dependencies
-    -----------
-    - parser.TEMPLATE_PARSERS : per-template registry.
-    - parser.parse_payslip : generic fallback.
-
-    Examples
-    --------
-    >>> get_parser(None) is parse_payslip
-    True
-    """
-    return TEMPLATE_PARSERS.get(template or "generic", parse_payslip)

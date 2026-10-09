@@ -74,9 +74,11 @@ def run_validation(
 
     First line of defence before any LLM involvement. Three families of
     checks run in order: presence of the three totals (gross, net,
-    deductions); the arithmetic identity ``net + deductions == gross``
-    within TOLERANCE; and period validity - a month/year in range for
-    cedolini, only a plausible year for the CU, which has no pay month.
+    deductions); the arithmetic identity ``gross - deductions + rounding
+    == net`` within TOLERANCE (``rounding`` is the optional "arrotondamento"
+    some payrolls add to reach a round net, 0 when absent); and period
+    validity - a month/year in range for cedolini, only a plausible year
+    for the CU, which has no pay month.
     When entries are present, their sums are cross-checked against the
     totals: mismatches are warnings (not blocking), since partially
     printed tables are legitimate. Every failure becomes an issue dict
@@ -124,6 +126,8 @@ def run_validation(
     gross = _value(fields, "gross_pay")
     net = _value(fields, "net_pay")
     deductions = _value(fields, "total_deductions")
+    rounding = _value(fields, "rounding")
+    rounding = rounding if _is_number(rounding) else 0.0
 
     if gross is None:
         errors.append(
@@ -145,19 +149,20 @@ def run_validation(
         )
 
     if _is_number(gross) and _is_number(net) and _is_number(deductions):
-        if abs(net + deductions - gross) > TOLERANCE:
+        if abs(gross - deductions + rounding - net) > TOLERANCE:
+            with_rounding = f" + arrotondamento ({rounding})" if rounding else ""
             errors.append(
                 {
                     "field": "net_pay",
                     "check": "net_consistency",
                     "message": (
-                        f"Netto ({net}) + trattenute ({deductions}) non combacia "
-                        f"con il lordo ({gross})"
+                        f"Lordo ({gross}) − trattenute ({deductions}){with_rounding} "
+                        f"non combacia con il netto ({net})"
                     ),
                     "action": "user",
                 }
             )
-    elif not _is_number(deductions) and not any(e["field"] == "total_deductions" for e in errors):
+    elif not _is_number(deductions):
         errors.append(
             {
                 "field": "total_deductions",

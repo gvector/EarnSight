@@ -14,6 +14,8 @@ the ``TEMPLATES`` registry (in code or via configuration), with no change to
 
 from __future__ import annotations
 
+from app.services.extraction.text_layer import Line
+
 TEMPLATES: dict[str, list[str]] = {
     # marker case-insensitive; il template "generic" è sempre il fallback
     "zucchetti": ["zucchetti"],
@@ -62,3 +64,49 @@ def detect_template(text: str) -> str:
         if all(marker.lower() in lowered for marker in markers):
             return name
     return GENERIC_TEMPLATE
+
+
+# Ruoli di pagina: alcuni software paghe (Zucchetti) antepongono al cedolino un
+# foglio presenze, con il «periodo di riferimento» delle variabili (il mese
+# precedente). Tutto ciò che non è presenze è trattato come cedolino.
+_ATTENDANCE_MARKERS = ("timbrature", "giustificativi")
+
+
+def classify_pages(lines: list[Line], page_count: int) -> list[str]:
+    """Assign a role to every PDF page: ``cedolino``, ``presenze`` or ``vuota``.
+
+    The attendance sheet ("presenze") is recognised by its column headers
+    (TIMBRATURE and GIUSTIFICATIVI); a page with no text is ``vuota``;
+    any other page is a payslip page. The pipeline parses only
+    ``cedolino`` pages, so the attendance sheet's period never leaks into
+    the payslip fields.
+
+    Parameters
+    ----------
+    lines : list of Line
+        Text lines of the whole document, as from ``extract_lines``.
+    page_count : int
+        Number of pages in the PDF (pages without text produce no lines).
+
+    Returns
+    -------
+    list of str
+        One role per page, in page order.
+
+    Examples
+    --------
+    >>> classify_pages([], 1)
+    ['vuota']
+    """
+    texts = [""] * page_count
+    for line in lines:
+        texts[line.page] += " " + line.text.lower()
+    roles = []
+    for text in texts:
+        if not text.strip():
+            roles.append("vuota")
+        elif all(marker in text for marker in _ATTENDANCE_MARKERS):
+            roles.append("presenze")
+        else:
+            roles.append("cedolino")
+    return roles

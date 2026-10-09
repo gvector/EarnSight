@@ -29,7 +29,11 @@ _CU_TOTAL_LABELS: dict[str, list[str]] = {
     "net_pay": [r"(?i:netto\s+erogato)", r"(?i:netto)"],
 }
 
-_CU_YEAR_RE = re.compile(r"(?i:anno(?:\s+di\s+)?(?:riferimento|imposta)?\s*:?\s*)(\d{4})")
+# "Anno 2024", "Anno di riferimento: 2024", "Anno/Periodo d'imposta 2024"
+# (anche con apostrofo tipografico, come esce spesso dal text layer).
+_CU_YEAR_RE = re.compile(
+    r"(?i:\b(?:anno|periodo)(?:\s+(?:di\s+|d['’]\s*)?(?:riferimento|imposta))?\s*:?\s*)(\d{4})"
+)
 
 
 def _parsed(value: Any, source: str) -> FieldProvenance:
@@ -62,9 +66,9 @@ def parse_cu(lines: list[Line]) -> tuple[dict[str, FieldProvenance], list[dict[s
     registry order is what decides, since a generic label like ``"netto"``
     would also match ``"netto erogato"``. The first label whose pattern
     matches a line wins, and the matched amount is parsed with the shared
-    payslip amount pattern. The reference year is recovered from an
-    ``"Anno (di riferimento/di imposta)"`` label only if no field already
-    supplied it.
+    payslip amount pattern. The reference year is recovered from the
+    first ``"Anno"`` / ``"Anno di riferimento"`` / ``"Anno (o Periodo)
+    d'imposta"`` label.
 
     Parameters
     ----------
@@ -102,8 +106,6 @@ def parse_cu(lines: list[Line]) -> tuple[dict[str, FieldProvenance], list[dict[s
     """
     fields: dict[str, FieldProvenance] = {}
     for name, labels in _CU_TOTAL_LABELS.items():
-        if name in fields:
-            continue
         for label in labels:
             pattern = re.compile(label + r"\s*:?\s*(" + AMOUNT_PATTERN + r")")
             for line in lines:
@@ -114,10 +116,9 @@ def parse_cu(lines: list[Line]) -> tuple[dict[str, FieldProvenance], list[dict[s
             if name in fields:
                 break
 
-    if "period_year" not in fields:
-        for line in lines:
-            match = _CU_YEAR_RE.search(line.text)
-            if match:
-                fields["period_year"] = _parsed(int(match.group(1)), line.text)
-                break
+    for line in lines:
+        match = _CU_YEAR_RE.search(line.text)
+        if match:
+            fields["period_year"] = _parsed(int(match.group(1)), line.text)
+            break
     return fields, []

@@ -173,6 +173,26 @@ def has_text_layer(pdf_path: Path) -> bool:
         doc.close()
 
 
+def page_count(pdf_path: Path) -> int:
+    """Return the number of pages of the PDF.
+
+    Parameters
+    ----------
+    pdf_path : Path
+        Path of the PDF to inspect.
+
+    Returns
+    -------
+    int
+        Page count, including pages without any text.
+    """
+    doc = pymupdf.open(pdf_path)
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
 def extract_lines(pdf_path: Path) -> list[Line]:
     """Extract the text lines of every page, grouping words by Y coordinate.
 

@@ -21,6 +21,8 @@ from app.services.extraction.validation import run_validation
 # Campi specchiati in colonne dedicate del documento (per analytics).
 NUMERIC_FIELDS = ("gross_pay", "net_pay", "total_deductions")
 INT_FIELDS = ("period_month", "period_year")
+# Importi solo nel JSONB: coercizione numerica come NUMERIC_FIELDS, senza colonna.
+JSONB_NUMERIC_FIELDS = ("rounding",)
 
 
 def coerce_correction_value(name: str, value: Any) -> Any:
@@ -29,7 +31,8 @@ def coerce_correction_value(name: str, value: Any) -> Any:
     User input and LLM responses arrive as untyped JSON payloads, so every
     correction passes through this gate before it can reach validation or
     the dedicated document columns. Integer fields (INT_FIELDS) accept only
-    finite whole numbers, numeric fields (NUMERIC_FIELDS) only finite
+    finite whole numbers, numeric fields (NUMERIC_FIELDS and the JSONB-only
+    JSONB_NUMERIC_FIELDS, e.g. ``rounding``) only finite
     numbers, and both tolerate the Italian decimal comma. A ValueError with
     a clear message lets the caller decide whether to answer 422 (user
     input) or skip the field with a warning (malformed LLM response).
@@ -80,7 +83,7 @@ def coerce_correction_value(name: str, value: Any) -> Any:
         if not number.is_integer():
             raise ValueError(f"{name} richiede un numero intero, ricevuto {value!r}")
         return int(number)
-    if name in NUMERIC_FIELDS:
+    if name in NUMERIC_FIELDS or name in JSONB_NUMERIC_FIELDS:
         try:
             number = float(str(value).strip().replace(",", "."))
         except ValueError:
@@ -472,7 +475,11 @@ class ExtractionResult(BaseModel):
     status : DocumentStatus, optional
         Lifecycle status derived from validation.
     raw_text : str, optional
-        Raw text layer of the source PDF.
+        Raw text layer of the source PDF (all pages).
+    pages : list of str, optional
+        Role of each PDF page, in order: ``"cedolino"`` (parsed) or
+        ``"presenze"`` (attendance sheet some payrolls prepend, ignored by
+        the parser). Its length is the page count.
 
     Methods
     -------
@@ -504,7 +511,7 @@ class ExtractionResult(BaseModel):
     >>> result.status.value
     'pending'
     >>> sorted(result.to_jsonb())
-    ['entries', 'fields', 'issues', 'validation']
+    ['entries', 'fields', 'issues', 'pages', 'validation']
     """
 
     template: str | None = None
@@ -515,6 +522,7 @@ class ExtractionResult(BaseModel):
     validation: ValidationSummary = Field(default_factory=ValidationSummary)
     status: DocumentStatus = DocumentStatus.PENDING
     raw_text: str = ""
+    pages: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_jsonb(cls, data: dict | None) -> ExtractionResult:
@@ -558,6 +566,7 @@ class ExtractionResult(BaseModel):
             entries=[Entry(**e) for e in (data.get("entries") or [])],
             issues=[Issue(**i) for i in (data.get("issues") or [])],
             validation=ValidationSummary(**(data.get("validation") or {})),
+            pages=list(data.get("pages") or []),
         )
 
     @classmethod
@@ -848,10 +857,9 @@ class ExtractionResult(BaseModel):
     def to_jsonb(self) -> dict[str, Any]:
         """Project the result onto its persisted JSONB shape.
 
-        Only fields, entries, issues and validation are included: the
-        shape is unchanged since Phase 1. ``template``, ``raw_text``
-        and ``doc_type`` are deliberately excluded because they live in
-        dedicated document columns.
+        Fields, entries, issues, validation and page roles are included.
+        ``template``, ``raw_text`` and ``doc_type`` are deliberately
+        excluded because they live in dedicated document columns.
 
         Parameters
         ----------
@@ -861,7 +869,7 @@ class ExtractionResult(BaseModel):
         -------
         dict of str to Any
             JSON-serialisable projection with keys ``fields``,
-            ``entries``, ``issues`` and ``validation``.
+            ``entries``, ``issues``, ``validation`` and ``pages``.
 
         Dependencies
         -----------
@@ -870,10 +878,10 @@ class ExtractionResult(BaseModel):
         Examples
         --------
         >>> sorted(ExtractionResult().to_jsonb())
-        ['entries', 'fields', 'issues', 'validation']
+        ['entries', 'fields', 'issues', 'pages', 'validation']
         """
         return self.model_dump(
-            include={"fields", "entries", "issues", "validation"},
+            include={"fields", "entries", "issues", "validation", "pages"},
         )
 
 

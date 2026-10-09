@@ -4,7 +4,9 @@ Orchestrates the whole extraction of a document and returns an
 ``ExtractionResult``, the typed contract defined in ``result.py``. The
 ``doc_type`` decides the parser: ``"cu"`` goes to the CU parser, while for
 payslips the detected template picks the per-template parser from the
-``TEMPLATE_PARSERS`` registry, with the generic parser as fallback.
+``TEMPLATE_PARSERS`` registry, with the generic parser as fallback. Every
+page gets a role (``templates.classify_pages``): only ``cedolino`` pages are
+parsed, so an attendance sheet bundled in the PDF is tracked but ignored.
 
 PDFs without a usable text layer short-circuit to the ``needs_ocr`` status:
 OCR is a future component, so the pipeline only reports the issue instead of
@@ -13,10 +15,11 @@ attempting a scan conversion.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from app.services.extraction.cu import parse_cu
-from app.services.extraction.parser import get_parser
+from app.services.extraction.parser import parse_payslip
 from app.services.extraction.result import (
     DocumentStatus,
     Entry,
@@ -24,10 +27,39 @@ from app.services.extraction.result import (
     Issue,
     ValidationSummary,
 )
-from app.services.extraction.templates import detect_template
-from app.services.extraction.text_layer import extract_lines, has_text_layer
+from app.services.extraction.templates import classify_pages, detect_template
+from app.services.extraction.text_layer import Line, extract_lines, has_text_layer, page_count
+from app.services.extraction.zucchetti import parse_zucchetti
 
 DOC_TYPES = ("cedolino", "cu")
+
+# Registry per-template: detect_template sceglie il parser da qui, fallback
+# generico. TeamSystem si aggiunge quando arrivano cedolini reali da tarare.
+TEMPLATE_PARSERS: dict[str, Callable[[list[Line]], tuple[dict, list[dict]]]] = {
+    "zucchetti": parse_zucchetti,
+}
+
+
+def get_parser(template: str | None) -> Callable[[list[Line]], tuple[dict, list[dict]]]:
+    """Return the parser registered for a template, generic as fallback.
+
+    Parameters
+    ----------
+    template : str or None
+        Template signature produced by ``detect_template``.
+
+    Returns
+    -------
+    Callable
+        Parser with the ``parse_payslip`` contract:
+        ``list[Line] -> (fields, entries)``.
+
+    Examples
+    --------
+    >>> get_parser(None) is parse_payslip
+    True
+    """
+    return TEMPLATE_PARSERS.get(template or "generic", parse_payslip)
 
 
 def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResult:
@@ -69,7 +101,8 @@ def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResu
     - text_layer.has_text_layer, text_layer.extract_lines : PDF text-layer
       check and coordinate-aware line extraction via PyMuPDF.
     - templates.detect_template : layout fingerprinting of the payslip.
-    - parser.get_parser : template-to-parser registry lookup with the
+    - templates.classify_pages : page roles (cedolino / presenze / vuota).
+    - pipeline.get_parser : template-to-parser registry lookup with the
       generic parser as fallback.
     - cu.parse_cu : label-based CU parser.
     - result.ExtractionResult.revalidate : deterministic validation and
@@ -105,15 +138,19 @@ def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResu
     full_text = "\n".join(line.text for line in lines)
 
     if doc_type == "cu":
+        pages = ["cu"] * page_count(pdf_path)
         fields, entries = parse_cu(lines)
         template = None
     else:
+        pages = classify_pages(lines, page_count(pdf_path))
+        payslip_lines = [line for line in lines if pages[line.page] == "cedolino"]
         template = detect_template(full_text)
-        fields, entries = get_parser(template)(lines)
+        fields, entries = get_parser(template)(payslip_lines)
 
     result = ExtractionResult(
         doc_type=doc_type,
         template=template,
+        pages=pages,
         fields=fields,
         entries=[Entry(**entry) for entry in entries],
         raw_text=full_text,

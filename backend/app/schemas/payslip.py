@@ -182,6 +182,8 @@ class DocumentOut(BaseModel):
         Error message when processing failed.
     created_at : datetime
         Creation timestamp.
+    additional_payment : bool
+        True for a 13th/14th month payslip (read from the extraction JSONB).
 
     Dependencies
     -----------
@@ -212,6 +214,7 @@ class DocumentOut(BaseModel):
     total_deductions: Decimal | None
     error: str | None
     created_at: datetime
+    additional_payment: bool = False  # 13ª/14ª: stesso mese di un cedolino ordinario
 
     model_config = {"from_attributes": True}
 
