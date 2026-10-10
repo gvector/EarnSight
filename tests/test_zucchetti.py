@@ -36,6 +36,11 @@ def test_single_page_payslip_is_fully_extracted(zucchetti_pdf):
         "total_deductions": 434.66,
         "rounding": 0.66,
         "net_pay": 1571.0,
+        "taxable_income": 1820.74,
+        "income_tax": 250.0,
+        "ytd_taxable_income": 8950.0,
+        "ytd_income_tax": 1234.0,
+        "employer_tax_code": "01234567890",
     }
     assert result.status == "done", result.issues
     assert result.issues == []
@@ -136,3 +141,27 @@ def test_document_list_exposes_additional_payment(client, tmp_path, monkeypatch)
         for d in client.get("/api/payslips", headers=headers).json()
     }
     assert flags == {"giugno.pdf": False, "quattordicesima.pdf": True}
+
+
+def test_fiscal_fields(zucchetti_pdf):
+    v = _values(run_extraction(zucchetti_pdf))
+    assert v["taxable_income"] == 1820.74
+    assert v["income_tax"] == 250.0
+    assert v["ytd_taxable_income"] == 8950.0
+    assert v["ytd_income_tax"] == 1234.0
+    assert v["employer_tax_code"] == "01234567890"  # quello dell'azienda, non del dipendente
+
+
+def test_taxable_income_sums_every_imponibile_row(tmp_path):
+    entries = [*ZUCCHETTI_ENTRIES, ("F02010", "Imponibile Tass.aut.", "100,00", None, None, None)]
+    path = tmp_path / "z.pdf"
+    build_zucchetti_pdf(path, entries=entries)
+    assert _values(run_extraction(path))["taxable_income"] == 1920.74
+
+
+def test_fiscal_fields_absent_without_rows(tmp_path):
+    entries = [e for e in ZUCCHETTI_ENTRIES if "IRPEF" not in e[1]]
+    path = tmp_path / "z.pdf"
+    build_zucchetti_pdf(path, entries=entries, rounding="0,66", net="1.821,00", deductions="184,66")
+    v = _values(run_extraction(path))
+    assert "taxable_income" not in v and "income_tax" not in v

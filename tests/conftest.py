@@ -107,11 +107,12 @@ def _put(page, x, y, text, size=8):
     page.insert_text((x, y), text, fontname="helv", fontsize=size)
 
 
-def _zucchetti_payslip_page(doc, period, entries, rounding, net):
+def _zucchetti_payslip_page(doc, period, entries, rounding, net, deductions):
     page = doc.new_page(width=595, height=842)
     _put(page, 86, 28, "RagionesSociale", 5)
     _put(page, 85, 38, "AZIENDA ESEMPIO S.P.A.")
     _put(page, 28, 78, "CodicesFiscale", 5)  # CF azienda: non va confuso col dipendente
+    _put(page, 120, 82, "Sede", 5)
     _put(page, 26, 88, "01234567890")
     _put(page, 433, 102, "PERIODOsDIsRETRIBUZIONE", 5)
     _put(page, 430, 114, period)
@@ -136,9 +137,28 @@ def _zucchetti_payslip_page(doc, period, entries, rounding, net):
         y += 10.4
     _put(page, 28, 616, "CONGUAGLIO", 5)
     _put(page, 28, 652, "PROGRESSIVI", 5)
-    _put(page, 99, 668, "9.876,00")  # progressivi: fuori dalla tabella voci
+    # sottoetichette (parole separate, come nel text layer reale), allineate a destra
+    for right, first, second in [(129, "Imp.", "INPS"), (205, "Imp.", "INAIL"),
+                                 (281, "Imp.", "IRPEF"), (357, "IRPEF", "pagata")]:  # fmt: skip
+        width = fitz.get_text_length(second, fontname="helv", fontsize=5)
+        _put(page, right - width, 656, second, 5)
+        _put(
+            page,
+            right - width - 3 - fitz.get_text_length(first, fontname="helv", fontsize=5),
+            656,
+            first,
+            5,
+        )
+    # progressivi (fuori dalla tabella voci): valori allineati a destra all'etichetta
+    for right, value in [
+        (129, "9.876,00"),
+        (205, "9.876,00"),
+        (281, "8.950,00"),
+        (357, "1.234,00"),
+    ]:
+        _put(page, right - fitz.get_text_length(value, fontname="helv", fontsize=8), 668, value)
     for y, label, value in [(703, "TOTALEsCOMPETENZE", "2.005,00"),
-                            (717, "TOTALEsTRATTENUTE", "434,66"),
+                            (717, "TOTALEsTRATTENUTE", deductions),
                             (729, "ARROTONDAMENTO", rounding)]:  # fmt: skip
         _put(page, 425, y, label, 6)
         _put(page, 547, y, value)
@@ -165,12 +185,13 @@ def build_zucchetti_pdf(
     entries=ZUCCHETTI_ENTRIES,
     rounding="0,66",
     net="1.571,00",
+    deductions="434,66",
 ):
     """Cedolino Zucchetti; con attendance_period antepone il foglio presenze."""
     doc = fitz.open()
     if attendance_period:
         _zucchetti_attendance_page(doc, attendance_period)
-    _zucchetti_payslip_page(doc, period, entries, rounding, net)
+    _zucchetti_payslip_page(doc, period, entries, rounding, net, deductions)
     doc.save(path)
     doc.close()
 

@@ -15,6 +15,12 @@ Layout facts this parser relies on, observed on real documents:
   the totals do not include;
 - the net pay includes an ``ARROTONDAMENTO`` (rounding) to a round figure,
   extracted as the ``rounding`` field so validation can close the equation;
+- the monthly IRPEF base is every voci row whose description starts with
+  «Imponibile» (amount in IMPORTO BASE); the IRPEF withheld is the sum of the
+  «Ritenute IRPEF» entries; the PROGRESSIVI block carries year-to-date
+  figures on the row below its sub-labels (``Imp. IRPEF``, ``IRPEF pagata``),
+  right-aligned to each label; the company tax code is the 11-digit value
+  below the left-hand ``Codice fiscale`` label;
 - an additional month (13th/14th) carries ``AGG.`` next to the period.
 
 The parser receives only the payslip pages: the attendance sheet some
@@ -24,6 +30,7 @@ documents prepend is filtered out upstream (``templates.classify_pages``).
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from typing import Any
 
 from app.services.extraction.parser import AMOUNT_PATTERN, parse_amount
@@ -85,6 +92,14 @@ _TOTAL_EARNINGS = _label("totale", "competenze")
 _TOTAL_DEDUCTIONS = _label("totale", "trattenute")
 _ROUNDING = _label("arrotondamento")
 _NET = _label("netto", "del", "mese")
+_PROGRESSIVI = _label("progressivi")
+_YTD_TAXABLE = _label("imp.", "irpef")
+_YTD_TAX = _label("irpef", "pagata")
+_COMPANY_TAX_CODE = _label("codice", "fiscale")
+_VAT_RE = re.compile(r"^\d{11}$")
+_YTD_MARGIN = 8.0  # pt: i valori sono allineati a destra all'etichetta
+_COMPANY_COLUMN = 200.0  # pt: il CF dell'azienda sta a sinistra, quello del dipendente a destra
+_COMPANY_ROW_DISTANCE = 14.0  # pt sotto l'etichetta
 
 
 def _find(lines: list[Line], pattern: re.Pattern[str]) -> tuple[int, Word, Word] | None:
@@ -202,15 +217,15 @@ def _total_fields(lines: list[Line], fields: dict[str, FieldProvenance]) -> None
         fields["net_pay"] = FieldProvenance.parsed(parse_amount(net.text), net.text)
 
 
-def _entries(lines: list[Line]) -> list[dict[str, Any]]:
-    """Rows of the VOCI VARIABILI table with an amount in TRATTENUTE or COMPETENZE.
+def _table_rows(
+    lines: list[Line],
+) -> Iterator[tuple[Line, Word | None, list[str], dict[str, float]]]:
+    """Rows of the VOCI VARIABILI table: (line, code word, description words, columns).
 
-    Each amount goes to the nearest column header by horizontal centre;
-    amounts in IMPORTO BASE or RIFERIMENTO are bases, not entries, and
-    amounts in parentheses are informative. The table ends at CONGUAGLIO
-    or at the page break.
+    ``columns`` maps each column role (base, riferimento, trattenuta,
+    spettanza) to the horizontal centre of its header. The table ends at
+    CONGUAGLIO or at the page break.
     """
-    entries: list[dict[str, Any]] = []
     start = 0
     while (header := _find(lines[start:], _ENTRIES_HEADER)) is not None:
         index = start + header[0]
@@ -241,25 +256,126 @@ def _entries(lines: list[Line]) -> list[dict[str, Any]]:
                 and w.x0 >= (code.x1 if code else 0)
                 and w.x1 <= description_end
             ]
-            for k, word in enumerate(line.words):
-                if not _AMOUNT_RE.fullmatch(word.text) or not columns:
-                    continue
-                before = line.words[k - 1].text if k else ""
-                after = line.words[k + 1].text if k + 1 < len(line.words) else ""
-                if before.endswith("(") and after.startswith(")"):
-                    continue  # quota informativa (es. C/Ditta): fuori dai totali
-                role = min(columns, key=lambda r: abs(columns[r] - word.center_x))
-                if role in ("trattenuta", "spettanza"):
-                    entries.append(
-                        {
-                            "code": code.text if code else None,
-                            "description": " ".join(description) or None,
-                            "amount": parse_amount(word.text),
-                            "entry_type": role,
-                        }
-                    )
+            yield line, code, description, columns
         start = index + 1
+
+
+def _entries(lines: list[Line]) -> list[dict[str, Any]]:
+    """Rows of the VOCI VARIABILI table with an amount in TRATTENUTE or COMPETENZE.
+
+    Each amount goes to the nearest column header by horizontal centre;
+    amounts in IMPORTO BASE or RIFERIMENTO are bases, not entries, and
+    amounts in parentheses are informative.
+    """
+    entries: list[dict[str, Any]] = []
+    for line, code, description, columns in _table_rows(lines):
+        for k, word in enumerate(line.words):
+            if not _AMOUNT_RE.fullmatch(word.text) or not columns:
+                continue
+            before = line.words[k - 1].text if k else ""
+            after = line.words[k + 1].text if k + 1 < len(line.words) else ""
+            if before.endswith("(") and after.startswith(")"):
+                continue  # quota informativa (es. C/Ditta): fuori dai totali
+            role = min(columns, key=lambda r: abs(columns[r] - word.center_x))
+            if role in ("trattenuta", "spettanza"):
+                entries.append(
+                    {
+                        "code": code.text if code else None,
+                        "description": " ".join(description) or None,
+                        "amount": parse_amount(word.text),
+                        "entry_type": role,
+                    }
+                )
     return entries
+
+
+def _imponibile_rows(lines: list[Line]) -> list[tuple[str, float]]:
+    """(description, amount) of the voci rows starting with «Imponibile», amount in IMPORTO BASE."""
+    rows: list[tuple[str, float]] = []
+    for line, _, description, columns in _table_rows(lines):
+        if "base" not in columns or not description:
+            continue
+        if not description[0].lower().startswith("imponibile"):
+            continue
+        for word in line.words:
+            if _AMOUNT_RE.fullmatch(word.text) and (
+                min(columns, key=lambda r: abs(columns[r] - word.center_x)) == "base"
+            ):
+                rows.append((" ".join(description), parse_amount(word.text)))
+                break
+    return rows
+
+
+def _ytd_amount(lines: list[Line], pattern: re.Pattern[str]) -> Word | None:
+    """PROGRESSIVI value under the sub-label, right-aligned to the label's right edge."""
+    start = next(
+        (i for i, line in enumerate(lines) if _PROGRESSIVI.fullmatch(line.words[0].text)), None
+    )
+    if start is None:
+        return None
+    found = _find(lines[start:], pattern)
+    if found is None or start + found[0] + 1 >= len(lines):
+        return None
+    last = found[2]
+    return next(
+        (
+            w
+            for w in lines[start + found[0] + 1].words
+            if _AMOUNT_RE.fullmatch(w.text) and abs(w.x1 - last.x1) < _YTD_MARGIN
+        ),
+        None,
+    )
+
+
+def _fiscal_fields(
+    lines: list[Line], entries: list[dict[str, Any]], fields: dict[str, FieldProvenance]
+) -> None:
+    """Monthly IRPEF base and withholding, PROGRESSIVI year-to-date, company tax code."""
+    taxable = _imponibile_rows(lines)
+    if taxable:
+        total = round(sum(amount for _, amount in taxable), 2)
+        fields["taxable_income"] = FieldProvenance.parsed(total, taxable[0][0])
+    withheld = [
+        e
+        for e in entries
+        if e["entry_type"] == "trattenuta"
+        and (e["description"] or "").lower().startswith("ritenute irpef")
+    ]
+    if withheld:
+        total = round(sum(e["amount"] for e in withheld), 2)
+        fields["income_tax"] = FieldProvenance.parsed(total, withheld[0]["description"])
+    # progressivi: valore sulla riga sotto, allineato a destra all'etichetta
+    for name, pattern in (("ytd_taxable_income", _YTD_TAXABLE), ("ytd_income_tax", _YTD_TAX)):
+        word = _ytd_amount(lines, pattern)
+        if word is not None:
+            fields[name] = FieldProvenance.parsed(parse_amount(word.text), word.text)
+    # codice fiscale azienda: 11 cifre sotto l'etichetta di sinistra (il dipendente è a destra)
+    for index, line in enumerate(lines):
+        label = next(
+            (
+                w
+                for w in line.words
+                if w.x0 < _COMPANY_COLUMN and _COMPANY_TAX_CODE.fullmatch(w.text)
+            ),
+            None,
+        )
+        if label is None:
+            continue
+        value = next(
+            (
+                w
+                for candidate in lines[index + 1 : index + 3]
+                if candidate.page == line.page
+                for w in candidate.words
+                if _VAT_RE.fullmatch(w.text)
+                and 0 < w.y0 - label.y0 <= _COMPANY_ROW_DISTANCE
+                and w.x0 < _COMPANY_COLUMN
+            ),
+            None,
+        )
+        if value is not None:
+            fields["employer_tax_code"] = FieldProvenance.parsed(value.text, value.text)
+            break
 
 
 def parse_zucchetti(
@@ -275,11 +391,15 @@ def parse_zucchetti(
     Returns
     -------
     tuple of (dict of str to FieldProvenance, list of dict)
-        Canonical fields — period, identity, totals, ``rounding`` and,
-        for a 13th/14th month, ``additional_payment`` — and the entries
+        Canonical fields — period, identity, totals, ``rounding``, the fiscal
+        fields (``taxable_income``, ``income_tax``, ``ytd_taxable_income``,
+        ``ytd_income_tax``, ``employer_tax_code``) and, for a 13th/14th
+        month, ``additional_payment`` — and the entries
         of the TRATTENUTE/COMPETENZE columns.
     """
     fields: dict[str, FieldProvenance] = {}
     _header_fields(lines, fields)
     _total_fields(lines, fields)
-    return fields, _entries(lines)
+    entries = _entries(lines)
+    _fiscal_fields(lines, entries, fields)
+    return fields, entries
