@@ -18,10 +18,25 @@ export const FIELD_LABELS: Record<string, string> = {
   employee_code: "Codice dipendente",
   matricola: "Matricola",
   fiscal_code: "Codice fiscale",
+  taxable_income: "Imponibile IRPEF",
+  income_tax: "IRPEF trattenuta",
+  ytd_taxable_income: "Imponibile IRPEF da inizio anno",
+  ytd_income_tax: "IRPEF pagata da inizio anno",
+  employer_tax_code: "Codice fiscale datore",
 };
-const AMOUNT_FIELDS = ["gross_pay", "total_deductions", "rounding", "net_pay"];
+const AMOUNT_FIELDS = [
+  "gross_pay",
+  "total_deductions",
+  "rounding",
+  "net_pay",
+  "taxable_income",
+  "income_tax",
+  "ytd_taxable_income",
+  "ytd_income_tax",
+];
+const FISCAL_FIELDS = ["taxable_income", "income_tax", "ytd_taxable_income", "ytd_income_tax"];
 const INTEGER_FIELDS = ["period_month", "period_year"];
-const IDENTITY_FIELDS = ["company_name", "employee_name", "employee_code", "matricola", "fiscal_code"];
+const IDENTITY_FIELDS = ["company_name", "employer_tax_code", "employee_name", "employee_code", "matricola", "fiscal_code"];
 
 /** Valore digitato → valore da inviare all'API (numero per importi e interi). */
 export function toCorrection(field: string, raw: string): string | number {
@@ -251,6 +266,8 @@ export function DocumentPage() {
   const issues = doc.extraction?.issues ?? [];
   const pages = doc.extraction?.pages ?? [];
   const rounding = fields.rounding?.value;
+  const fiscal = FISCAL_FIELDS.filter((f) => typeof fields[f]?.value === "number");
+  const isCu = doc.doc_type === "cu";
   const identity = IDENTITY_FIELDS.filter((f) => fields[f]?.value);
 
   return (
@@ -276,7 +293,24 @@ export function DocumentPage() {
         </Notice>
       )}
 
-      {!busy && (
+      {!busy && isCu && (
+        <dl className="summary">
+          <div>
+            <dt>Anno</dt>
+            <dd>{doc.period_year ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Imponibile IRPEF (punto 1)</dt>
+            <dd>{eur(doc.taxable_income)}</dd>
+          </div>
+          <div>
+            <dt>IRPEF trattenuta (punto 21)</dt>
+            <dd>{eur(doc.income_tax)}</dd>
+          </div>
+        </dl>
+      )}
+
+      {!busy && !isCu && (
         <dl className="summary">
           <div>
             <dt>Lordo</dt>
@@ -297,6 +331,19 @@ export function DocumentPage() {
             <dd>{eur(doc.net_pay)}</dd>
           </div>
         </dl>
+      )}
+
+      {!busy && !isCu && fiscal.length > 0 && (
+        <section aria-label="Fisco" className="fiscal">
+          <dl className="facts">
+            {fiscal.map((f) => (
+              <div key={f}>
+                <dt>{FIELD_LABELS[f]}</dt>
+                <dd>{eur(fields[f]?.value as number)}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       )}
 
       {!busy && issues.length > 0 && (
@@ -326,10 +373,10 @@ export function DocumentPage() {
                 <dd>{doc.template === "generic" ? "generico" : capitalize(doc.template)}</dd>
               </div>
             )}
-            {doc.doc_type === "cedolino" && pages.length > 0 && (
+            {pages.length > 0 && (
               <div>
                 <dt>Pagine</dt>
-                <dd>{pages.length === 1 ? "1 (cedolino)" : `${pages.length} (${pages.join(", ")})`}</dd>
+                <dd>{pages.length === 1 ? `1 (${pages[0]})` : `${pages.length} (${pages.join(", ")})`}</dd>
               </div>
             )}
           </dl>

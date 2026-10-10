@@ -220,4 +220,46 @@ describe("DocumentPage reprocess in flight", () => {
     await screen.findByRole("button", { name: "Rielabora il PDF" });
     expect(server.calls.filter((c) => c.path === "/payslips/r1/reprocess")).toHaveLength(1);
   });
+
+  it("shows the Fisco block with the month and the year-to-date figures", async () => {
+    serve(makeDetail({ id: "f1" }));
+    renderApp("/documenti/f1");
+    const fisco = await screen.findByRole("region", { name: "Fisco" });
+    expect(within(fisco).getByText("1.820,74 €")).toBeInTheDocument();
+    expect(within(fisco).getByText("8.950,00 €")).toBeInTheDocument();
+    expect(within(fisco).getByText("IRPEF pagata da inizio anno")).toBeInTheDocument();
+  });
+
+  it("hides the Fisco block when no fiscal figure was read", async () => {
+    serve(makeDetail({ id: "f2", extraction: { fields: {}, issues: [], pages: ["cedolino"] } }));
+    renderApp("/documenti/f2");
+    await screen.findByRole("heading", { name: "Aprile 2026" });
+    expect(screen.queryByRole("region", { name: "Fisco" })).not.toBeInTheDocument();
+  });
+
+  it("shows year, point 1 and point 21 of a CU instead of gross and net", async () => {
+    serve(
+      makeDetail({
+        id: "c1",
+        doc_type: "cu",
+        gross_pay: null,
+        net_pay: null,
+        total_deductions: null,
+        period_month: null,
+      }),
+    );
+    renderApp("/documenti/c1");
+    expect(await screen.findByText("Imponibile IRPEF (punto 1)")).toBeInTheDocument();
+    expect(screen.getByText("IRPEF trattenuta (punto 21)")).toBeInTheDocument();
+    expect(screen.getByText("1.820,74 €")).toBeInTheDocument();
+    expect(screen.queryByText("Netto")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Fisco" })).not.toBeInTheDocument();
+  });
+
+  it("lists the copy pages of a CU", async () => {
+    const base = makeDetail({ id: "c2", doc_type: "cu" });
+    serve({ ...base, extraction: { ...base.extraction!, pages: ["cu", "cu", "copia"] } });
+    renderApp("/documenti/c2");
+    expect(await screen.findByText("3 (cu, cu, copia)")).toBeInTheDocument();
+  });
 });

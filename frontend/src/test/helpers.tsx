@@ -82,6 +82,9 @@ export function makeDoc(overrides: Partial<DocumentSummary> = {}): DocumentSumma
     gross_pay: "2005.00",
     net_pay: "1571.00",
     total_deductions: "434.66",
+    taxable_income: "1820.74",
+    income_tax: "250.00",
+    employer_tax_code: "01234567890",
     error: null,
     created_at: `2026-05-0${(seq % 9) + 1}T10:00:00Z`,
     additional_payment: false,
@@ -93,7 +96,16 @@ export function makeDetail(overrides: Partial<DocumentDetail> = {}): DocumentDet
   return {
     ...makeDoc(),
     raw_text: "testo",
-    extraction: { fields: {}, issues: [], pages: ["cedolino"] },
+    extraction: {
+      fields: {
+        taxable_income: { value: 1820.74, confidence: 0.9 },
+        income_tax: { value: 250, confidence: 0.9 },
+        ytd_taxable_income: { value: 8950, confidence: 0.9 },
+        ytd_income_tax: { value: 1234, confidence: 0.9 },
+      },
+      issues: [],
+      pages: ["cedolino"],
+    },
     entries: [],
     ...overrides,
   };

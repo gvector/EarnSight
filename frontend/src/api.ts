@@ -16,6 +16,9 @@ export interface DocumentSummary {
   gross_pay: string | null; // Decimal serializzato come stringa ("2250.00")
   net_pay: string | null;
   total_deductions: string | null;
+  taxable_income: string | null;
+  income_tax: string | null;
+  employer_tax_code: string | null;
   error: string | null;
   created_at: string;
   additional_payment: boolean;
