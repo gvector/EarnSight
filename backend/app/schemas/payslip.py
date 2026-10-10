@@ -178,6 +178,12 @@ class DocumentOut(BaseModel):
         Canonical net pay total.
     total_deductions : Decimal | None
         Canonical total deductions.
+    taxable_income : Decimal | None
+        IRPEF taxable income (payslip month, or CU point 1).
+    income_tax : Decimal | None
+        IRPEF withheld (payslip month, or CU point 21).
+    employer_tax_code : str | None
+        Tax code of the employer.
     error : str | None
         Error message when processing failed.
     created_at : datetime
@@ -212,6 +218,9 @@ class DocumentOut(BaseModel):
     gross_pay: Decimal | None
     net_pay: Decimal | None
     total_deductions: Decimal | None
+    taxable_income: Decimal | None = None
+    income_tax: Decimal | None = None
+    employer_tax_code: str | None = None
     error: str | None
     created_at: datetime
     additional_payment: bool = False  # 13ª/14ª: stesso mese di un cedolino ordinario

@@ -236,3 +236,23 @@ def test_document_without_owner_is_rejected_by_the_database(client):
 def test_upload_requires_auth(client):
     resp = client.post("/api/payslips/upload", files={"file": ("a.pdf", b"x", "application/pdf")})
     assert resp.status_code == 401
+
+
+def test_detail_exposes_fiscal_fields_and_accepts_their_correction(
+    client, token, tmp_path, inline_processing
+):
+    from conftest import build_zucchetti_pdf
+
+    path = tmp_path / "z.pdf"
+    build_zucchetti_pdf(path)
+    headers = {"Authorization": f"Bearer {token}"}
+    doc = _upload(client, token, path)
+    assert doc["taxable_income"] == "1820.74"
+    assert doc["employer_tax_code"] == "01234567890"
+    patched = client.patch(
+        f"/api/payslips/{doc['id']}/fields",
+        headers=headers,
+        json={"fields": {"income_tax": "260,00"}},
+    ).json()
+    assert patched["income_tax"] == "260.00"
+    assert patched["extraction"]["fields"]["income_tax"]["corrected"] is True
