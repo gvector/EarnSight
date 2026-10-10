@@ -19,10 +19,12 @@ from app.models.payslip import PayslipDocument
 from app.services.extraction.validation import run_validation
 
 # Campi specchiati in colonne dedicate del documento (per analytics).
-NUMERIC_FIELDS = ("gross_pay", "net_pay", "total_deductions")
+NUMERIC_FIELDS = ("gross_pay", "net_pay", "total_deductions", "taxable_income", "income_tax")
 INT_FIELDS = ("period_month", "period_year")
+# Testo specchiato in colonna (raggruppamento per datore di lavoro nelle analisi).
+TEXT_COLUMN_FIELDS = ("employer_tax_code",)
 # Importi solo nel JSONB: coercizione numerica come NUMERIC_FIELDS, senza colonna.
-JSONB_NUMERIC_FIELDS = ("rounding",)
+JSONB_NUMERIC_FIELDS = ("rounding", "ytd_taxable_income", "ytd_income_tax")
 
 
 def coerce_correction_value(name: str, value: Any) -> Any:
@@ -797,8 +799,9 @@ class ExtractionResult(BaseModel):
 
         Projects the mirrored numeric fields (NUMERIC_FIELDS) into
         Decimal instances - the type of the ORM columns - and the period
-        integers as-is, so ``apply_to_document`` can persist them with
-        no further conversion. Missing fields map to None.
+        integers as-is, plus the text columns (TEXT_COLUMN_FIELDS) as
+        ``str``, so ``apply_to_document`` can persist them with no
+        further conversion. Missing fields map to None.
 
         Parameters
         ----------
@@ -807,13 +810,16 @@ class ExtractionResult(BaseModel):
         Returns
         -------
         dict of str to Any
-            Keys ``gross_pay``, ``net_pay`` and ``total_deductions``
-            (Decimal or None) plus ``period_month`` and ``period_year``
-            (int or None).
+            Keys of NUMERIC_FIELDS (``gross_pay``, ``net_pay``,
+            ``total_deductions``, ``taxable_income``, ``income_tax``;
+            Decimal or None), ``period_month`` and ``period_year``
+            (int or None), and TEXT_COLUMN_FIELDS (``employer_tax_code``;
+            str or None).
 
         Dependencies
         -----------
-        - result.NUMERIC_FIELDS : mirrored numeric field registry.
+        - result.NUMERIC_FIELDS / result.TEXT_COLUMN_FIELDS : mirrored
+          field registries.
         - decimal.Decimal : column-compatible numeric type.
 
         Examples
@@ -830,6 +836,9 @@ class ExtractionResult(BaseModel):
             values[name] = Decimal(str(value)) if isinstance(value, int | float) else None
         values["period_month"] = self._field_value("period_month")
         values["period_year"] = self._field_value("period_year")
+        for name in TEXT_COLUMN_FIELDS:
+            value = self._field_value(name)
+            values[name] = str(value) if value is not None else None
         return values
 
     def _field_value(self, name: str) -> Any:
@@ -909,7 +918,7 @@ def apply_to_document(doc: PayslipDocument, result: ExtractionResult) -> None:
     Dependencies
     -----------
     - ExtractionResult.to_jsonb / column_values : projections.
-    - result.NUMERIC_FIELDS : mirrored numeric columns.
+    - result.NUMERIC_FIELDS / result.TEXT_COLUMN_FIELDS : mirrored columns.
 
     Examples
     --------
@@ -928,4 +937,6 @@ def apply_to_document(doc: PayslipDocument, result: ExtractionResult) -> None:
         setattr(doc, field_name, values[field_name])
     doc.period_month = values["period_month"]
     doc.period_year = values["period_year"]
+    for field_name in TEXT_COLUMN_FIELDS:
+        setattr(doc, field_name, values[field_name])
     doc.status = result.status.value

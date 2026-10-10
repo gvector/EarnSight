@@ -61,6 +61,12 @@ class PayslipDocument(Base):
         Canonical net pay total.
     total_deductions : Numeric(12, 2), nullable
         Canonical total deductions.
+    taxable_income : Numeric(12, 2), nullable
+        Canonical taxable income (IRPEF) of the period.
+    income_tax : Numeric(12, 2), nullable
+        Canonical income tax (IRPEF) withheld in the period.
+    employer_tax_code : String(16), nullable
+        Employer tax code, used to group documents by employer.
     error : Text, nullable
         Error message set when processing failed.
     created_at : DateTime(timezone=True), server default now()
@@ -107,6 +113,9 @@ class PayslipDocument(Base):
     gross_pay: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     net_pay: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     total_deductions: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    taxable_income: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    income_tax: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    employer_tax_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

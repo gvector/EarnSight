@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.services.extraction.result import NUMERIC_FIELDS, FieldProvenance
+from app.services.extraction.result import FieldProvenance
 from app.services.extraction.text_layer import Line
 
 AMOUNT_PATTERN = r"\d{1,3}(?:\.\d{3})*,\d{2}"
@@ -165,7 +165,7 @@ def _parse_total_fields(lines: list[Line], fields: dict[str, dict[str, Any]]) ->
     >>> fields["net_pay"].value
     1750.0
     """
-    for name in NUMERIC_FIELDS:
+    for name in _TOTAL_LABELS:  # solo i totali con etichetta
         for label in _TOTAL_LABELS[name]:
             pattern = re.compile(label + r"\s*:?\s*(" + AMOUNT_PATTERN + r")")
             for line in lines:

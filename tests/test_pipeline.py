@@ -167,3 +167,43 @@ class TestCoerceCorrectionValue:
         from app.services.extraction.result import coerce_correction_value
 
         assert coerce_correction_value("company_name", "Acme Srl") == "Acme Srl"
+
+
+def test_new_fields_coerce_and_project():
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.extraction.result import (
+        FieldProvenance,
+        apply_to_document,
+        coerce_correction_value,
+    )
+
+    assert coerce_correction_value("taxable_income", "1820,74") == 1820.74
+    assert coerce_correction_value("ytd_income_tax", "250") == 250.0
+    assert coerce_correction_value("employer_tax_code", " 01234567890 ") == " 01234567890 "
+    result = ExtractionResult(
+        fields={
+            "taxable_income": FieldProvenance(value=1820.74),
+            "income_tax": FieldProvenance(value=250.0),
+            "ytd_taxable_income": FieldProvenance(value=9876.0),
+            "employer_tax_code": FieldProvenance(value="01234567890"),
+        }
+    )
+    values = result.column_values()
+    assert values["taxable_income"] == Decimal("1820.74")
+    assert values["income_tax"] == Decimal("250.0")
+    assert values["employer_tax_code"] == "01234567890"
+    assert "ytd_taxable_income" not in values  # solo nel JSONB
+    doc = SimpleNamespace()
+    apply_to_document(doc, result)
+    assert doc.taxable_income == Decimal("1820.74")
+    assert doc.employer_tax_code == "01234567890"
+    assert doc.extraction["fields"]["ytd_taxable_income"]["value"] == 9876.0
+
+
+def test_garbage_in_new_numeric_field_raises():
+    from app.services.extraction.result import coerce_correction_value
+
+    with pytest.raises(ValueError):
+        coerce_correction_value("income_tax", "abc")
