@@ -41,9 +41,14 @@ _HEADER_BAND = 30.0
 _TAX_CODE_RE = re.compile(r"^\d{11}$")
 _AMOUNT_RE = re.compile(rf"^{AMOUNT_PATTERN}$")
 _POINTS = {
-    # campo → (pagina con l'intestazione, etichetta sopra il punto, numero del punto)
-    "taxable_income": ("dati fiscali", "redditi di lavoro dipendente", "1"),
-    "income_tax": ("dati fiscali", "ritenute irpef", "21"),
+    # campo → punti da sommare: (pagina con l'intestazione, etichetta sopra il punto, numero).
+    # Il reddito di lavoro dipendente è diviso fra contratto a tempo indeterminato
+    # (punto 1) e determinato (punto 2): l'imponibile è la loro somma.
+    "taxable_income": (
+        ("dati fiscali", "a tempo indeterminato", "1"),
+        ("dati fiscali", "a tempo determinato", "2"),
+    ),
+    "income_tax": (("dati fiscali", "ritenute irpef", "21"),),
 }
 
 
@@ -256,9 +261,11 @@ def parse_cu(lines: list[Line]) -> tuple[dict[str, FieldProvenance], list[dict[s
 
     The reference year comes from the first line matching ``_CU_YEAR_RE``
     ("RELATIVA ALL'ANNO 2025" on the form); taxable income and IRPEF
-    withheld are read from points 1 and 21 of DATI FISCALI
-    (``_point_value``); the employer's tax code from page 1. A point that
-    is missing or empty leaves its field out.
+    withheld are read from DATI FISCALI (``_point_value``): taxable income
+    is the sum of points 1 and 2 (employment under a permanent and a
+    fixed-term contract), IRPEF withheld is point 21; the employer's tax
+    code comes from page 1. A field whose points are all missing or empty
+    is left out.
 
     Parameters
     ----------
@@ -299,9 +306,11 @@ def parse_cu(lines: list[Line]) -> tuple[dict[str, FieldProvenance], list[dict[s
         if match := _CU_YEAR_RE.search(line.text):
             fields["period_year"] = FieldProvenance.parsed(int(match.group(1)), line.text)
             break
-    for name, (section, label, number) in _POINTS.items():
-        if found := _point_value(lines, section, label, number):
-            fields[name] = FieldProvenance.parsed(found[0], found[1])
+    for name, points in _POINTS.items():
+        found = [v for point in points if (v := _point_value(lines, *point)) is not None]
+        if found:
+            total = round(sum(amount for amount, _ in found), 2)
+            fields[name] = FieldProvenance.parsed(total, " + ".join(text for _, text in found))
     if code := _employer_tax_code(lines):
         fields["employer_tax_code"] = FieldProvenance.parsed(code, code)
     return fields, []

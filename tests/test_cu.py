@@ -81,3 +81,15 @@ def test_cu_has_no_payslip_totals(tmp_path):
     result = _cu(tmp_path)
     assert not {"gross_pay", "net_pay", "total_deductions"} & set(result.fields)
     assert all(i.field not in ("gross_pay", "net_pay", "total_deductions") for i in result.issues)
+
+
+def test_taxable_income_adds_fixed_term_employment(tmp_path):
+    # punto 1 (tempo indeterminato) + punto 2 (tempo determinato): stesso reddito di lavoro
+    result = _cu(tmp_path, point2="3.000,00")
+    assert result.fields["taxable_income"].value == 28000.0
+    assert result.status == "done", result.issues
+
+
+def test_fixed_term_employment_alone(tmp_path):
+    result = _cu(tmp_path, point1=None, point2="3.000,00")
+    assert result.fields["taxable_income"].value == 3000.0

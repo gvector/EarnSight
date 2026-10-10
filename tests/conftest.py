@@ -175,7 +175,7 @@ def build_zucchetti_pdf(
     doc.close()
 
 
-def _cu_pages(doc, header, point1, point21, year):
+def _cu_pages(doc, header, point1, point21, year, point2=None):
     page = doc.new_page(width=595, height=842)
     _put(page, 372, 14, header, 5)
     _put(page, 200, 60, "CERTIFICAZIONE UNICA", 9)
@@ -198,14 +198,23 @@ def _cu_pages(doc, header, point1, point21, year):
         10,
     )
     _put(page, 40, 60, "DATI FISCALI", 7)
-    _put(page, 125, 90, "Redditi di lavoro dipendente e assimilati", 5)
+    # punti 1 e 2: lavoro dipendente a tempo indeterminato e determinato (stessa intestazione)
+    _put(page, 125, 84, "Redditi di lavoro dipendente e assimilati", 5)
+    _put(page, 234, 84, "Redditi di lavoro dipendente e assimilati", 5)
+    _put(page, 125, 92, "con contratto a tempo indeterminato", 5)
+    _put(page, 234, 92, "con contratto a tempo determinato", 5)
     _put(page, 122, 102, "1", 5)
-    _put(page, 230, 90, "Lavoro dipendente", 5)
-    _put(page, 230, 102, "6", 5)
-    if point1:
-        _put(
-            page, 219 - fitz.get_text_length(point1, fontname="helv", fontsize=10), 101, point1, 10
-        )
+    _put(page, 232, 102, "2", 5)
+    _put(page, 342, 102, "3", 5)
+    for right, value in [(219, point1), (330, point2)]:
+        if value:
+            _put(
+                page,
+                right - fitz.get_text_length(value, fontname="helv", fontsize=10),
+                101,
+                value,
+                10,
+            )
     _put(page, 125, 210, "Ritenute Irpef", 5)
     _put(page, 209, 210, "Addizionale regionale all’Irpef", 5)
     for x, number in [(122, "21"), (209, "22"), (301, "26"), (388, "27")]:
@@ -224,16 +233,16 @@ def _cu_pages(doc, header, point1, point21, year):
 
 
 def build_cu_pdf(path, *, point1="25.000,00", point21="5.000,00", copy=True, year="2025",
-                 copy_point1=None):  # fmt: skip
+                 copy_point1=None, point2=None):  # fmt: skip
     """CU sul modello ministeriale (dati inventati): originale + copia per il percipiente."""
     doc = fitz.open()
-    _cu_pages(doc, "ORIGINALE PER IL PERCIPIENTE", point1, point21, year)
+    _cu_pages(doc, "ORIGINALE PER IL PERCIPIENTE", point1, point21, year, point2)
     page = doc.new_page(width=595, height=842)
     _put(page, 72, 72, "Istruzioni: il punto 1 indica i redditi di lavoro dipendente", 8)
     # seconda riga: senza, la media parole/pagina scende sotto la soglia del text layer
     _put(page, 72, 86, "Il punto 21 indica le ritenute Irpef operate dal sostituto d’imposta", 8)
     if copy:
-        _cu_pages(doc, "COPIA PER IL PERCIPIENTE", copy_point1 or point1, point21, year)
+        _cu_pages(doc, "COPIA PER IL PERCIPIENTE", copy_point1 or point1, point21, year, point2)
     doc.save(path)
     doc.close()
 
