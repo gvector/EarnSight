@@ -71,8 +71,8 @@ def build_pdf(path, extra_rows, net_value="2.250,00"):
 # spazi («TOTALEsCOMPETENZE»). Totali: 2.005,00 − 434,66 + 0,66 = 1.571,00.
 ZUCCHETTI_ENTRIES = [
     # (codice, descrizione, importo base, riferimento, trattenuta, competenza)
-    ("000014", "Retribuzione", "80,00000", "26,00000 GG", None, "2.000,00"),
-    ("001201", "Ente Bilaterale Commercio", None, None, None, "5,00"),
+    ("000014", "Retribuzione", "80,00000", "26,00000 GG", None, "1.993,00"),
+    ("001201", "Ente Bilaterale Commercio", None, None, None, "12,00"),
     ("ZP9960", "Arrotond. mese pr.", None, None, "0,40", None),
     ("Z00000", "Contributo IVS", "2.005,00", "9,19000 %", "184,26", None),
     # quota a carico ditta: importo tra parentesi, informativo, fuori dai totali
@@ -133,7 +133,7 @@ def _zucchetti_payslip_page(doc, period, entries, rounding, net, deductions):
         (129, "9.876,00"),
         (205, "9.876,00"),
         (281, "8.950,00"),
-        (357, "1.234,00"),
+        (357, "1.236,00"),
     ]:
         _put(page, right - fitz.get_text_length(value, fontname="helv", fontsize=8), 668, value)
     for y, label, value in [(703, "TOTALEsCOMPETENZE", "2.005,00"),

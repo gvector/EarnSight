@@ -39,7 +39,7 @@ def test_single_page_payslip_is_fully_extracted(zucchetti_pdf):
         "taxable_income": 1820.74,
         "income_tax": 250.0,
         "ytd_taxable_income": 8950.0,
-        "ytd_income_tax": 1234.0,
+        "ytd_income_tax": 1236.0,
         "employer_tax_code": "01234567890",
     }
     assert result.status == "done", result.issues
@@ -50,8 +50,8 @@ def test_entries_follow_the_trattenute_competenze_columns(zucchetti_pdf):
     entries = run_extraction(zucchetti_pdf).entries
     got = [(e.code, e.description, e.entry_type, e.amount) for e in entries]
     assert got == [
-        ("000014", "Retribuzione", "spettanza", 2000.0),
-        ("001201", "Ente Bilaterale Commercio", "spettanza", 5.0),
+        ("000014", "Retribuzione", "spettanza", 1993.0),
+        ("001201", "Ente Bilaterale Commercio", "spettanza", 12.0),
         ("ZP9960", "Arrotond. mese pr.", "trattenuta", 0.40),
         ("Z00000", "Contributo IVS", "trattenuta", 184.26),
         ("F03020", "Ritenute IRPEF", "trattenuta", 250.0),
@@ -148,7 +148,7 @@ def test_fiscal_fields(zucchetti_pdf):
     assert v["taxable_income"] == 1820.74
     assert v["income_tax"] == 250.0
     assert v["ytd_taxable_income"] == 8950.0
-    assert v["ytd_income_tax"] == 1234.0
+    assert v["ytd_income_tax"] == 1236.0
     assert v["employer_tax_code"] == "01234567890"  # quello dell'azienda, non del dipendente
 
 

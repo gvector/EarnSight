@@ -41,7 +41,8 @@ def real_tokens() -> set[str]:
                         tokens.update({plain, plain.replace(",", ".")})
                 elif IDENTIFIER.fullmatch(text):
                     tokens.add(text)
-        fields = run_extraction(pdf).fields
+        doc_type = "cu" if pdf.stem.startswith("unico") else "cedolino"  # unico_<aa>.pdf: CU
+        fields = run_extraction(pdf, doc_type).fields
         for name in ("employee_name", "company_name", "employee_code", "matricola"):
             value = fields.get(name)
             if value and isinstance(value.value, str):
