@@ -6,7 +6,9 @@ Orchestrates the whole extraction of a document and returns an
 payslips the detected template picks the per-template parser from the
 ``TEMPLATE_PARSERS`` registry, with the generic parser as fallback. Every
 page gets a role (``templates.classify_pages``): only ``cedolino`` pages are
-parsed, so an attendance sheet bundled in the PDF is tracked but ignored.
+parsed, so an attendance sheet bundled in the PDF is tracked but ignored. CU
+pages get ``cu`` or ``copia`` (``cu.classify_cu_pages``): the copy for the
+recipient repeats the original and is never read.
 
 PDFs without a usable text layer short-circuit to the ``needs_ocr`` status:
 OCR is a future component, so the pipeline only reports the issue instead of
@@ -18,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from app.services.extraction.cu import parse_cu
+from app.services.extraction.cu import classify_cu_pages, parse_cu
 from app.services.extraction.parser import parse_payslip
 from app.services.extraction.result import (
     DocumentStatus,
@@ -69,7 +71,8 @@ def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResu
     the document is marked ``needs_ocr`` with a user-facing issue (OCR is a
     future component) and no parsing is attempted. Otherwise the text lines
     are extracted with their coordinates and the ``doc_type`` selects the
-    parser: ``"cu"`` goes to ``parse_cu`` with no template, while
+    parser: ``"cu"`` tags the recipient's copy pages ``copia`` and parses
+    the ``cu`` pages only with ``parse_cu``, with no template, while
     ``"cedolino"`` fingerprints the layout via ``detect_template`` and picks
     the per-template parser from the ``TEMPLATE_PARSERS`` registry, falling
     back to the generic parser. The assembled result is finally
@@ -82,7 +85,7 @@ def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResu
         Path to the stored PDF document.
     doc_type : str, optional
         Document type: ``"cedolino"`` (default) or ``"cu"``. Guides the
-        parser choice and the validation rules (CU checks only the year).
+        parser choice and the validation rules (the CU has its own checks).
 
     Returns
     -------
@@ -104,7 +107,8 @@ def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResu
     - templates.classify_pages : page roles (cedolino / presenze / vuota).
     - pipeline.get_parser : template-to-parser registry lookup with the
       generic parser as fallback.
-    - cu.parse_cu : label-based CU parser.
+    - cu.classify_cu_pages : CU page roles (cu / copia).
+    - cu.parse_cu : CU parser on the ministerial form.
     - result.ExtractionResult.revalidate : deterministic validation and
       status derivation.
 
@@ -138,8 +142,8 @@ def run_extraction(pdf_path: Path, doc_type: str = "cedolino") -> ExtractionResu
     full_text = "\n".join(line.text for line in lines)
 
     if doc_type == "cu":
-        pages = ["cu"] * page_count(pdf_path)
-        fields, entries = parse_cu(lines)
+        pages = classify_cu_pages(lines, page_count(pdf_path))
+        fields, entries = parse_cu([line for line in lines if pages[line.page] == "cu"])
         template = None
     else:
         pages = classify_pages(lines, page_count(pdf_path))

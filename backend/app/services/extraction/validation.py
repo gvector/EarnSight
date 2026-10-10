@@ -1,8 +1,9 @@
 """Validazione aritmetica deterministica dell'estrazione.
 
 Prima linea di difesa: controlli calcolabili senza LLM (coerenza netto/lordo/
-trattenute, somma voci vs totali, periodo valido). Gli errori generano "issue"
-con un'azione suggerita: `user` (inserimento manuale) o `llm` (richiesta mirata).
+trattenute, somma voci vs totali, periodo valido; per la CU imponibile, IRPEF
+trattenuta e anno). Gli errori generano "issue" con un'azione suggerita: `user`
+(inserimento manuale) o `llm` (richiesta mirata).
 """
 
 from __future__ import annotations
@@ -77,14 +78,14 @@ def run_validation(
     deductions); the arithmetic identity ``gross - deductions + rounding
     == net`` within TOLERANCE (``rounding`` is the optional "arrotondamento"
     some payrolls add to reach a round net, 0 when absent); and period
-    validity - a month/year in range for cedolini, only a plausible year
-    for the CU, which has no pay month.
+    validity - a month/year in range.
     When entries are present, their sums are cross-checked against the
     totals: mismatches are warnings (not blocking), since partially
     printed tables are legitimate. Every failure becomes an issue dict
     with a suggested action: ``"user"`` for arithmetic contradictions a
     human must fix, ``"llm"`` for missing values a targeted gateway
-    request may recover.
+    request may recover. A CU skips all of this and goes to
+    ``_validate_cu``: it has no gross/net/deductions nor entries.
 
     Parameters
     ----------
@@ -95,8 +96,8 @@ def run_validation(
         Recognised payslip entries; each exposes ``amount`` and
         ``entry_type`` ("spettanza" or "trattenuta").
     doc_type : str, optional
-        ``"cedolino"`` (default) validates month and year; ``"cu"``
-        validates only the reference year.
+        ``"cedolino"`` (default) runs the payslip checks; ``"cu"`` runs
+        the CU checks of ``_validate_cu``.
 
     Returns
     -------
@@ -109,6 +110,7 @@ def run_validation(
     -----------
     - validation._value / _is_number : safe field access and typing.
     - validation.TOLERANCE : cents-level rounding slack.
+    - validation._validate_cu : the CU checks.
 
     Examples
     --------
@@ -120,6 +122,8 @@ def run_validation(
     >>> run_validation(fields, [])["passed"]
     True
     """
+    if doc_type == "cu":
+        return _validate_cu(fields)
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
@@ -174,18 +178,7 @@ def run_validation(
 
     month = _value(fields, "period_month")
     year = _value(fields, "period_year")
-    if doc_type == "cu":
-        # La CU non ha un mese di paga: il periodo è solo l'anno di riferimento.
-        if not (_is_number(year) and 2000 <= year <= 2100):
-            errors.append(
-                {
-                    "field": "period_year",
-                    "check": "period_valid",
-                    "message": "Anno di riferimento della CU mancante o non valido",
-                    "action": "user",
-                }
-            )
-    elif not (_is_number(month) and _is_number(year) and 1 <= month <= 12 and 2000 <= year <= 2100):
+    if not (_is_number(month) and _is_number(year) and 1 <= month <= 12 and 2000 <= year <= 2100):
         errors.append(
             {
                 "field": "period_month",
@@ -225,4 +218,89 @@ def run_validation(
         "passed": not errors,
         "error_count": len(errors),
         "warning_count": len(warnings),
+    }
+
+
+def _validate_cu(fields: dict[str, Any]) -> dict[str, Any]:
+    """Run the deterministic checks of a CU.
+
+    The CU has no gross/net/deductions totals and no entries, so the
+    payslip checks do not apply. The checks are: taxable income (point 1)
+    and IRPEF withheld (point 21) present (``missing_field``, action
+    ``"llm"``); a plausible reference year (``period_valid``, ``"user"``);
+    and ``tax_consistency`` (``"user"``): the tax neither negative nor
+    above the taxable income, nor the taxable income negative - the one
+    arithmetic check available inside a CU, which catches the two points
+    read swapped or shifted.
+
+    Parameters
+    ----------
+    fields : dict of str to Any
+        Canonical CU fields keyed by name; values expose ``value``.
+
+    Returns
+    -------
+    dict of str to Any
+        Report with the same shape as ``run_validation``; ``warnings`` is
+        always empty.
+
+    Examples
+    --------
+    >>> from types import SimpleNamespace
+    >>> fields = {name: SimpleNamespace(value=v) for name, v in {
+    ...     "period_year": 2025, "taxable_income": 25000.0,
+    ...     "income_tax": 5000.0}.items()}
+    >>> _validate_cu(fields)["passed"]
+    True
+    """
+    errors: list[dict[str, Any]] = []
+    taxable = _value(fields, "taxable_income")
+    tax = _value(fields, "income_tax")
+    year = _value(fields, "period_year")
+
+    if taxable is None:
+        errors.append(
+            {
+                "field": "taxable_income",
+                "check": "missing_field",
+                "message": "Imponibile IRPEF (punto 1) non trovato nella CU",
+                "action": "llm",
+            }
+        )
+    if tax is None:
+        errors.append(
+            {
+                "field": "income_tax",
+                "check": "missing_field",
+                "message": "IRPEF trattenuta (punto 21) non trovata nella CU",
+                "action": "llm",
+            }
+        )
+    # La CU non ha un mese di paga: il periodo è solo l'anno di riferimento.
+    if not (_is_number(year) and 2000 <= year <= 2100):
+        errors.append(
+            {
+                "field": "period_year",
+                "check": "period_valid",
+                "message": "Anno di riferimento della CU mancante o non valido",
+                "action": "user",
+            }
+        )
+    if _is_number(taxable) and _is_number(tax) and (tax > taxable or tax < 0 or taxable < 0):
+        errors.append(
+            {
+                "field": "income_tax",
+                "check": "tax_consistency",
+                "message": (
+                    f"IRPEF trattenuta ({tax}) maggiore dell'imponibile ({taxable}) o negativa"
+                ),
+                "action": "user",
+            }
+        )
+    return {
+        "errors": errors,
+        "warnings": [],
+        "passed": not errors,
+        "error_count": len(errors),
+        "warning_count": 0,
     }

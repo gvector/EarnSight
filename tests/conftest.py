@@ -36,16 +36,6 @@ HEADER_ROWS = [
     "Periodo di paga: 01/2026",
 ]
 
-CU_ROWS = [
-    "CERTIFICAZIONE UNICA 2026",
-    "Spett.le AZIENDA ESEMPIO SRL",
-    "Anno di riferimento: 2025",
-    "Titolo 2 - Lavoro dipendente",
-    "1 - Compenso lordo 25.000,00",
-    "2 - Totale ritenute 5.000,00",
-    "3 - Netto erogato 20.000,00",
-]
-
 
 def build_pdf(path, extra_rows, net_value="2.250,00"):
     doc = fitz.open()
@@ -70,17 +60,6 @@ def build_pdf(path, extra_rows, net_value="2.250,00"):
     page.insert_text((425, y), "250,00", fontname="helv", fontsize=9)
     y += 14
     for text in extra_rows(net_value):
-        page.insert_text((72, y), text, fontname="helv", fontsize=9)
-        y += 14
-    doc.save(path)
-    doc.close()
-
-
-def build_cu_pdf(path):
-    doc = fitz.open()
-    page = doc.new_page()
-    y = 72
-    for text in CU_ROWS:
         page.insert_text((72, y), text, fontname="helv", fontsize=9)
         y += 14
     doc.save(path)
@@ -192,6 +171,69 @@ def build_zucchetti_pdf(
     if attendance_period:
         _zucchetti_attendance_page(doc, attendance_period)
     _zucchetti_payslip_page(doc, period, entries, rounding, net, deductions)
+    doc.save(path)
+    doc.close()
+
+
+def _cu_pages(doc, header, point1, point21, year):
+    page = doc.new_page(width=595, height=842)
+    _put(page, 372, 14, header, 5)
+    _put(page, 200, 60, "CERTIFICAZIONE UNICA", 9)
+    _put(page, 300, 74, f"RELATIVA ALL’ANNO {year}", 6)
+    _put(page, 121, 136, "Codice fiscale", 5)
+    _put(page, 122, 144, "1", 5)
+    _put(page, 128, 146, "01234567890", 10)  # a x 126 PyMuPDF lo fonde col numero del punto
+    _put(page, 400, 136, "Codice fiscale", 5)  # del percipiente: non è il datore
+    _put(page, 400, 146, "RSSMRA80A01H501U", 10)
+    page = doc.new_page(width=595, height=842)
+    _put(page, 372, 14, header, 5)
+    # esca: stesso numero di punto sotto un'altra etichetta, prima nell'ordine di lettura
+    _put(page, 125, 34, "Redditi di pensione", 5)
+    _put(page, 122, 46, "1", 5)
+    _put(
+        page,
+        219 - fitz.get_text_length("77.777,00", fontname="helv", fontsize=10),
+        45,
+        "77.777,00",
+        10,
+    )
+    _put(page, 40, 60, "DATI FISCALI", 7)
+    _put(page, 125, 90, "Redditi di lavoro dipendente e assimilati", 5)
+    _put(page, 122, 102, "1", 5)
+    _put(page, 230, 90, "Lavoro dipendente", 5)
+    _put(page, 230, 102, "6", 5)
+    if point1:
+        _put(
+            page, 219 - fitz.get_text_length(point1, fontname="helv", fontsize=10), 101, point1, 10
+        )
+    _put(page, 125, 210, "Ritenute Irpef", 5)
+    _put(page, 209, 210, "Addizionale regionale all’Irpef", 5)
+    for x, number in [(122, "21"), (209, "22"), (301, "26"), (388, "27")]:
+        _put(page, x, 221, number, 5)
+    if point21:
+        _put(
+            page,
+            199 - fitz.get_text_length(point21, fontname="helv", fontsize=10),
+            220,
+            point21,
+            10,
+        )
+    _put(
+        page, 280 - fitz.get_text_length("300,00", fontname="helv", fontsize=10), 220, "300,00", 10
+    )
+
+
+def build_cu_pdf(path, *, point1="25.000,00", point21="5.000,00", copy=True, year="2025",
+                 copy_point1=None):  # fmt: skip
+    """CU sul modello ministeriale (dati inventati): originale + copia per il percipiente."""
+    doc = fitz.open()
+    _cu_pages(doc, "ORIGINALE PER IL PERCIPIENTE", point1, point21, year)
+    page = doc.new_page(width=595, height=842)
+    _put(page, 72, 72, "Istruzioni: il punto 1 indica i redditi di lavoro dipendente", 8)
+    # seconda riga: senza, la media parole/pagina scende sotto la soglia del text layer
+    _put(page, 72, 86, "Il punto 21 indica le ritenute Irpef operate dal sostituto d’imposta", 8)
+    if copy:
+        _cu_pages(doc, "COPIA PER IL PERCIPIENTE", copy_point1 or point1, point21, year)
     doc.save(path)
     doc.close()
 

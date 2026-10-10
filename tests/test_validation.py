@@ -1,3 +1,4 @@
+import pytest
 from app.services.extraction.result import DocumentStatus, FieldProvenance
 from app.services.extraction.validation import run_validation
 
@@ -57,19 +58,35 @@ def test_garbage_period_produces_issue_not_exception():
     assert any(e["check"] == "period_valid" for e in report["errors"])
 
 
-def test_cu_requires_only_the_year():
-    fields = _fields()
-    del fields["period_month"]
-    report = run_validation(fields, [], doc_type="cu")
-    assert report["passed"] is True
+def _cu_fields(**overrides):
+    fields = {
+        "period_year": FieldProvenance(value=2025),
+        "taxable_income": FieldProvenance(value=25000.0),
+        "income_tax": FieldProvenance(value=5000.0),
+    }
+    fields.update(overrides)
+    return {k: v for k, v in fields.items() if v is not None}
 
-    bad_year = _fields()
-    del bad_year["period_month"]
-    bad_year["period_year"] = FieldProvenance(value=None)
-    report = run_validation(bad_year, [], doc_type="cu")
+
+def test_cu_requires_year_taxable_income_and_tax():
+    assert run_validation(_cu_fields(), [], doc_type="cu")["passed"] is True
+    report = run_validation(_cu_fields(taxable_income=None), [], doc_type="cu")
+    assert {(e["field"], e["check"], e["action"]) for e in report["errors"]} == {
+        ("taxable_income", "missing_field", "llm")
+    }
+    report = run_validation(_cu_fields(period_year=FieldProvenance(value=None)), [], doc_type="cu")
     assert any(
         e["check"] == "period_valid" and e["field"] == "period_year" for e in report["errors"]
     )
+
+
+@pytest.mark.parametrize("taxable, tax", [(1000.0, 2000.0), (-1.0, 0.0), (1000.0, -5.0)])
+def test_cu_tax_consistency(taxable, tax):
+    fields = _cu_fields(
+        taxable_income=FieldProvenance(value=taxable), income_tax=FieldProvenance(value=tax)
+    )
+    report = run_validation(fields, [], doc_type="cu")
+    assert any(e["check"] == "tax_consistency" and e["action"] == "user" for e in report["errors"])
 
 
 def test_entries_sum_mismatch_is_warning():
