@@ -22,6 +22,7 @@ from pathlib import Path
 
 from app.services.extraction.cu import classify_cu_pages, parse_cu
 from app.services.extraction.parser import parse_payslip
+from app.services.extraction.ranocchi import parse_ranocchi
 from app.services.extraction.result import (
     DocumentStatus,
     Entry,
@@ -36,9 +37,11 @@ from app.services.extraction.zucchetti import parse_zucchetti
 DOC_TYPES = ("cedolino", "cu")
 
 # Registry per-template: detect_template sceglie il parser da qui, fallback
-# generico. TeamSystem si aggiunge quando arrivano cedolini reali da tarare.
+# generico. Zucchetti e Ranocchi sono tarati su cedolini reali; TeamSystem si
+# aggiunge quando arrivano cedolini reali da tarare.
 TEMPLATE_PARSERS: dict[str, Callable[[list[Line]], tuple[dict, list[dict]]]] = {
     "zucchetti": parse_zucchetti,
+    "ranocchi": parse_ranocchi,
 }
 
 

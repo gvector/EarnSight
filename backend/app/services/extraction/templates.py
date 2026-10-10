@@ -1,6 +1,6 @@
 """Payroll software template detection via layout fingerprints.
 
-Every payroll software (Zucchetti, TeamSystem, ...) embeds a recognizable
+Every payroll software (Zucchetti, Ranocchi, TeamSystem, ...) embeds a recognizable
 signature in the text of the payslips it generates. This module fingerprints
 a document by scanning its full text for the case-insensitive marker strings
 registered in ``TEMPLATES``; the ``"generic"`` template in ``GENERIC_TEMPLATE``
@@ -19,6 +19,8 @@ from app.services.extraction.text_layer import Line
 TEMPLATES: dict[str, list[str]] = {
     # marker case-insensitive; il template "generic" è sempre il fallback
     "zucchetti": ["zucchetti"],
+    # firma «Ranocchi Software» nel testo ruotato a margine: mai come frase intera
+    "ranocchi": ["ranocchi"],
     "teamsystem": ["teamsystem"],
 }
 GENERIC_TEMPLATE = "generic"
