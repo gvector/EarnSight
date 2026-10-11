@@ -237,7 +237,7 @@ describe("DocumentPage reprocess in flight", () => {
     expect(screen.queryByRole("region", { name: "Fisco" })).not.toBeInTheDocument();
   });
 
-  it("shows year, point 1 and point 21 of a CU instead of gross and net", async () => {
+  it("shows year, points 1–2 and point 21 of a CU instead of gross and net", async () => {
     serve(
       makeDetail({
         id: "c1",
@@ -249,7 +249,7 @@ describe("DocumentPage reprocess in flight", () => {
       }),
     );
     renderApp("/documenti/c1");
-    expect(await screen.findByText("Imponibile IRPEF (punto 1)")).toBeInTheDocument();
+    expect(await screen.findByText("Imponibile IRPEF (punti 1 e 2)")).toBeInTheDocument();
     expect(screen.getByText("IRPEF trattenuta (punto 21)")).toBeInTheDocument();
     expect(screen.getByText("1.820,74 €")).toBeInTheDocument();
     expect(screen.queryByText("Netto")).not.toBeInTheDocument();

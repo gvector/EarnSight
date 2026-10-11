@@ -203,6 +203,10 @@ a {
 .summary dd {
   font-size: var(--step-1);
 }
+/* Fisco: legato al riepilogo sopra, staccato dalle tabelle delle voci sotto */
+.fiscal {
+  margin: -1rem 0 2.5rem;
+}
 .summary-net dd {
   font-weight: 700;
   color: var(--verde);

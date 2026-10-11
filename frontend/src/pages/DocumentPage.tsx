@@ -300,7 +300,7 @@ export function DocumentPage() {
             <dd>{doc.period_year ?? "—"}</dd>
           </div>
           <div>
-            <dt>Imponibile IRPEF (punto 1)</dt>
+            <dt>Imponibile IRPEF (punti 1 e 2)</dt>
             <dd>{eur(doc.taxable_income)}</dd>
           </div>
           <div>
