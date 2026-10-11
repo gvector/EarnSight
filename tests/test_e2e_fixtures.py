@@ -32,3 +32,11 @@ def test_e2e_fixture_matches_expectations(name, status, month, additional, pages
 
 def test_fake_pdf_fixture_is_not_a_pdf():
     assert not (FIXTURES / "non-un-pdf.pdf").read_bytes().startswith(b"%PDF")
+
+
+def test_cu_fixture_is_read_on_the_ministerial_form():
+    result = run_extraction(FIXTURES / "cu-2025.pdf", doc_type="cu")
+    assert result.status == "done", result.issues
+    assert result.fields["period_year"].value == 2025
+    assert result.fields["taxable_income"].value == 25000.0  # l'E2E si aspetta questo importo
+    assert result.pages == ["cu", "cu", "cu", "copia", "copia"]

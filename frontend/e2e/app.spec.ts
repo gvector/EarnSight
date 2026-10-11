@@ -1,6 +1,6 @@
 // End-to-end sullo stack completo (nginx → api → worker → postgres) con PDF sintetici.
 // Presuppone uno stack appena creato: `make e2e` lo crea, esegue questi test e lo distrugge.
-// PDF: e2e/fixtures, generati da make_fixtures.py (layout Zucchetti, dati inventati).
+// PDF: e2e/fixtures, generati da make_fixtures.py (layout Zucchetti e CU, dati inventati).
 import { expect, test, type Page } from "@playwright/test";
 import path from "node:path";
 
@@ -105,5 +105,21 @@ test("detail: the attendance sheet is tracked, deep links survive a reload", asy
 
   await page.getByRole("button", { name: "Esci" }).click();
   await expect(page).toHaveURL(/\/accedi$/);
+});
+
+test("cu: an uploaded Certificazione Unica shows points 1 and 21, the copy is tracked", async ({ page }) => {
+  await login(page);
+  await page.getByLabel("Scegli i PDF da caricare").setInputFiles([fixture("cu-2025.pdf")]);
+  await page.getByLabel("Certificazione Unica").check();
+  await page.getByRole("button", { name: "Carica", exact: true }).click();
+  await expect(page.getByText("1 documento caricato")).toBeVisible();
+
+  await page.getByRole("link", { name: "Documenti", exact: true }).click();
+  await page.getByRole("link", { name: "CU 2025" }).click({ timeout: 30_000 });
+  await expect(page.getByText("Imponibile IRPEF (punti 1 e 2)")).toBeVisible();
+  await expect(page.getByText("25.000,00 €")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("IRPEF trattenuta (punto 21)")).toBeVisible();
+  await expect(page.getByText("5 (cu, cu, cu, copia, copia)")).toBeVisible();
+  await expect(page.getByText("Netto")).toHaveCount(0);
 });
 });
