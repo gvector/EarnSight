@@ -122,4 +122,18 @@ test("cu: an uploaded Certificazione Unica shows points 1 and 21, the copy is tr
   await expect(page.getByText("5 (cu, cu, cu, copia, copia)")).toBeVisible();
   await expect(page.getByText("Netto")).toHaveCount(0);
 });
+
+test("anni: one card per year, missing months, the CU optional", async ({ page }) => {
+  await login(page);
+  await page.getByRole("link", { name: "Anni", exact: true }).click();
+  const current = page.getByRole("region", { name: "2026 · Zucchetti · datore 01234567890" });
+  await expect(current).toBeVisible();
+  await expect(current.getByRole("link", { name: "apr" })).toBeVisible();
+  await expect(current.getByRole("link", { name: "+ agg. giu" })).toBeVisible();
+  await expect(current.getByText(/Mancano gen–mar/)).toBeVisible();
+  await expect(current.getByText(/Nessuna CU per quest'anno/)).toBeVisible();
+
+  const previous = page.getByRole("region", { name: "2025 · datore 01234567890" });
+  await expect(previous.getByText("Nessun cedolino di quest'anno da confrontare con la CU")).toBeVisible();
+});
 });
