@@ -18,26 +18,7 @@ from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
 from app.models.payslip import PayslipDocument
 from app.models.user import User
-from app.workers.tasks import process_document
-from conftest import TEST_PASSWORD
 from sqlalchemy.exc import IntegrityError
-
-
-@pytest.fixture
-def inline_processing(monkeypatch):
-    """Il broker non è raggiungibile: il dispatch deve elaborare inline."""
-
-    def broken_delay(*args, **kwargs):
-        raise RuntimeError("broker non raggiungibile")
-
-    monkeypatch.setattr(process_document, "delay", broken_delay)
-
-
-@pytest.fixture
-def token(client):
-    resp = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD})
-    assert resp.status_code == 200
-    return resp.json()["access_token"]
 
 
 def _upload(client, token, pdf_path, doc_type="cedolino"):

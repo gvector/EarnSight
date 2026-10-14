@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.api.routes.auth import router as auth_router
 from app.api.routes.payslips import router as payslips_router
 from app.api.routes.settings import router as settings_router
+from app.api.routes.years import router as years_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.security import hash_password, verify_password
@@ -88,6 +89,7 @@ app = FastAPI(title="EarnSight API", version="0.1.0", lifespan=lifespan)
 app.include_router(auth_router, prefix="/api")
 app.include_router(payslips_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(years_router, prefix="/api")
 
 
 @app.get("/health")

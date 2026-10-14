@@ -279,6 +279,25 @@ def blank_pdf(tmp_path):
 
 
 @pytest.fixture
+def inline_processing(monkeypatch):
+    """Il broker non è raggiungibile: il dispatch deve elaborare inline."""
+
+    def broken_delay(*args, **kwargs):
+        raise RuntimeError("broker non raggiungibile")
+
+    from app.workers.tasks import process_document
+
+    monkeypatch.setattr(process_document, "delay", broken_delay)
+
+
+@pytest.fixture
+def token(client):
+    resp = client.post("/api/auth/login", json={"username": "admin", "password": TEST_PASSWORD})
+    assert resp.status_code == 200
+    return resp.json()["access_token"]
+
+
+@pytest.fixture
 def client():
     """TestClient con schema creato esplicitamente: lo schema nasce da
     Alembic in produzione, il lifespan non fa più create_all."""
