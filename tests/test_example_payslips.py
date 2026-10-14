@@ -7,6 +7,8 @@ compare qui: il mese atteso viene dal nome del file (``ced_apr_26.pdf``,
 tredicesima), ``unico_<aa>.pdf`` è una CU.
 """
 
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -106,3 +108,44 @@ def test_real_cu_matches_last_payslip_of_the_year(pdf):
     last_name, last = _chains()[(cu["employer_tax_code"], cu["period_year"])][-1]
     assert _close(cu["taxable_income"], last["ytd_taxable_income"]), last_name
     assert _close(cu["income_tax"], last["ytd_income_tax"]), last_name
+
+
+def _record(pdf, doc_type):
+    """Record del motore da un'estrazione reale, senza database."""
+    from types import SimpleNamespace
+
+    from app.services.analytics.records import record_from_document
+
+    result = run_extraction(pdf, doc_type=doc_type)
+    columns = result.column_values()
+    doc = SimpleNamespace(
+        id=uuid.uuid4(),
+        doc_type=doc_type,
+        status=result.status.value,
+        template=result.template,
+        extraction=result.to_jsonb(),
+        created_at=datetime(2026, 1, 1),
+        **columns,
+    )
+    return record_from_document(doc)
+
+
+def test_real_year_summaries():
+    from app.services.analytics.years import year_summaries
+
+    payslips = [_record(pdf, "cedolino") for pdf in PAYSLIPS]
+    cus = [_record(pdf, "cu") for pdf in CUS]
+    cards = {card.year: card for card in year_summaries(payslips, cus)}
+    assert set(cards) == {2025, 2026}  # un datore per anno nel materiale reale
+
+    previous = cards[2025]  # datore precedente: da settembre, con la CU
+    assert previous.template == "ranocchi"
+    assert previous.completeness.status == "incomplete"  # mancano i mesi prima di settembre
+    assert previous.missing_months == list(range(1, 9))
+    assert previous.cu is not None and previous.cu.status == "match"
+
+    current = cards[2026]  # datore attuale: senza CU, giugno ordinario mancante
+    assert current.template == "zucchetti"
+    assert 6 in current.missing_months
+    assert current.cu is None
+    assert current.duplicates == [] and current.to_review == []
