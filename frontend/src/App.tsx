@@ -5,6 +5,7 @@ import { DocumentPage } from "./pages/DocumentPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { YearsPage } from "./pages/YearsPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { DocumentsProvider, useDocuments, useSession } from "./state";
@@ -38,6 +39,7 @@ function Layout() {
             Panoramica
           </NavLink>
           <NavLink to="/documenti">Documenti</NavLink>
+          <NavLink to="/anni">Anni</NavLink>
           <NavLink to="/da-controllare">
             Da controllare
             {toReview > 0 && (
@@ -67,6 +69,7 @@ export function App() {
         <Route index element={<OverviewPage />} />
         <Route path="documenti" element={<DocumentsPage />} />
         <Route path="documenti/:id" element={<DocumentPage />} />
+        <Route path="anni" element={<YearsPage />} />
         <Route path="da-controllare" element={<ReviewPage />} />
         <Route path="impostazioni" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

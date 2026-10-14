@@ -73,6 +73,47 @@ export interface LlmSettingsInput {
   openai_api_key?: string; // assente = invariata, "" = cancella
 }
 
+export interface YearPayslip {
+  id: string;
+  month: number | null;
+  additional_payment: boolean;
+}
+
+export interface YearTotals {
+  gross_pay: string | null;
+  net_pay: string | null;
+  total_deductions: string | null;
+  taxable_income: string | null;
+  income_tax: string | null;
+}
+
+export interface YearCompleteness {
+  status: "complete" | "incomplete" | "no_fiscal_data";
+  taxable_diff: string | null;
+  tax_diff: string | null;
+}
+
+export interface YearCu {
+  id: string;
+  status: "match" | "mismatch" | "no_payslips" | "no_fiscal_data" | "to_review";
+  taxable_diff: string | null;
+  tax_diff: string | null;
+}
+
+/** Una scheda della pagina «Anni»: un anno con un datore di lavoro. */
+export interface YearSummary {
+  year: number;
+  employer_tax_code: string | null;
+  template: string | null;
+  payslips: YearPayslip[]; // in ordine di progressivo: l'ultimo è il riferimento
+  missing_months: number[]; // 1-12
+  duplicates: string[]; // id dei documenti
+  to_review: string[];
+  totals: YearTotals;
+  completeness: YearCompleteness;
+  cu: YearCu | null; // null = nessuna CU (facoltativa, non è un errore)
+}
+
 /** Errore dell'API con il messaggio (`detail`) già pronto da mostrare. */
 export class ApiError extends Error {
   constructor(
@@ -149,6 +190,8 @@ export const api = {
   correct: (id: string, fields: Record<string, string | number>) =>
     request<DocumentDetail>(`/payslips/${id}/fields`, json("PATCH", { fields })),
   llmResolve: (id: string) => request<DocumentDetail>(`/payslips/${id}/llm-resolve`, { method: "POST" }),
+
+  years: () => request<YearSummary[]>("/years"),
 
   getSettings: () => request<LlmSettings>("/settings"),
   saveSettings: (input: LlmSettingsInput) => request<LlmSettings>("/settings", json("PUT", input)),
