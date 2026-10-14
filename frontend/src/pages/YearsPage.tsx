@@ -82,38 +82,45 @@ function YearCard({ year, documents }: { year: YearSummary; documents: DocumentS
   return (
     <section className="panel" aria-labelledby={`anno-${year.year}-${year.employer_tax_code ?? "x"}`}>
       <h2 id={`anno-${year.year}-${year.employer_tax_code ?? "x"}`}>{heading(year)}</h2>
-      <p>
-        {year.payslips.map((p, i) => (
-          <span key={p.id}>
-            {i > 0 && " "}
-            <Link to={`/documenti/${p.id}`}>
-              {p.additional_payment ? `+ agg. ${shortMonth(p.month)}` : shortMonth(p.month)}
-            </Link>
-          </span>
-        ))}
-      </p>
+      {/* una CU senza cedolini: niente elenco, totali o diagnosi dei cedolini */}
+      {year.payslips.length > 0 && (
+        <p>
+          {year.payslips.map((p, i) => (
+            <span key={p.id}>
+              {i > 0 && " "}
+              <Link to={`/documenti/${p.id}`}>
+                {p.additional_payment ? `+ agg. ${shortMonth(p.month)}` : shortMonth(p.month)}
+              </Link>
+            </span>
+          ))}
+        </p>
+      )}
       {year.missing_months.length > 0 && (
         <Notice tone="warn">Mancano {monthRuns(year.missing_months)}: carica i cedolini per completare l'anno</Notice>
       )}
-      <dl className="facts">
-        {rows
-          .filter(([, v]) => v !== null)
-          .map(([label, v]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{eur(v)}</dd>
-            </div>
-          ))}
-      </dl>
-      <p className="muted small">somma dei cedolini caricati</p>
-      {completeness.status === "complete" && <p>Cedolini completi: le somme dei mesi tornano con i progressivi</p>}
-      {completeness.status === "incomplete" && (
-        <p>
-          Mancano cedolini: rispetto ai progressivi mancano {eur(completeness.taxable_diff)} di imponibile e{" "}
-          {eur(completeness.tax_diff)} di IRPEF
-        </p>
+      {year.payslips.length > 0 && (
+        <>
+          <dl className="facts">
+            {rows
+              .filter(([, v]) => v !== null)
+              .map(([label, v]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{eur(v)}</dd>
+                </div>
+              ))}
+          </dl>
+          <p className="muted small">somma dei cedolini caricati</p>
+          {completeness.status === "complete" && <p>Cedolini completi: le somme dei mesi tornano con i progressivi</p>}
+          {completeness.status === "incomplete" && (
+            <p>
+              Mancano cedolini: rispetto ai progressivi mancano {eur(completeness.taxable_diff)} di imponibile e{" "}
+              {eur(completeness.tax_diff)} di IRPEF
+            </p>
+          )}
+          {completeness.status === "no_fiscal_data" && <p>I cedolini non hanno i dati fiscali: rielaborali</p>}
+        </>
       )}
-      {completeness.status === "no_fiscal_data" && <p>I cedolini non hanno i dati fiscali: rielaborali</p>}
       <CuLine cu={year.cu} lastMonth={lastMonth} />
       {year.duplicates.length > 0 && (
         <p>

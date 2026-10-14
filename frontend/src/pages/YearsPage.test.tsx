@@ -97,6 +97,22 @@ describe("YearsPage", () => {
     expect(screen.getByRole("link", { name: "documento" })).toHaveAttribute("href", "/documenti/zz");
   });
 
+  it("a CU without payslips shows neither totals nor a payslip diagnosis", async () => {
+    const empty = { gross_pay: null, net_pay: null, total_deductions: null, taxable_income: null, income_tax: null };
+    setup([
+      makeYear({
+        template: null,
+        payslips: [],
+        totals: empty,
+        completeness: { status: "no_fiscal_data", taxable_diff: null, tax_diff: null },
+        cu: { id: "cu1", status: "no_payslips", taxable_diff: null, tax_diff: null },
+      }),
+    ]);
+    expect(await screen.findByText("Nessun cedolino di quest'anno da confrontare con la CU")).toBeInTheDocument();
+    expect(screen.queryByText("somma dei cedolini caricati")).not.toBeInTheDocument();
+    expect(screen.queryByText(/rielaborali/)).not.toBeInTheDocument();
+  });
+
   it("is reachable from the navigation", async () => {
     const server = fakeApi();
     server.on("GET", "/payslips", { body: [] });
