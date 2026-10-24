@@ -30,6 +30,12 @@ _SYSTEM_PROMPT = (
     "Se un campo non è presente nel testo, non includerlo nella risposta."
 )
 
+# Token di contesto chiesti a Ollama: il prompt arriva a ~13.000 caratteri
+# (testo + istruzioni); un cedolino è quasi tutto numeri e punteggiatura, che
+# il tokenizer spezza fitto (anche 1,5-2 caratteri per token): fino a ~8.500
+# token, più la risposta JSON.
+_OLLAMA_NUM_CTX = 16384
+
 
 class BaseGateway:
     """Common interface and helpers for LLM provider adapters.
@@ -121,11 +127,11 @@ class BaseGateway:
     def _parse_response(self, content: str) -> dict[str, Any]:
         """Extract the ``fields`` mapping from a JSON model response.
 
-        Decodes the raw model content and returns its ``fields`` object,
-        tolerating malformed answers: if the payload is not JSON or the
-        ``fields`` value is not a dict, an empty mapping is returned so a
-        bad LLM answer degrades to "no corrections" instead of crashing
-        the pipeline.
+        Decodes the raw model content and returns its ``fields`` object.
+        A JSON object whose ``fields`` value is missing or not a dict
+        degrades to an empty mapping ("no corrections"); content that is
+        not a JSON object raises, and the caller decides the policy (the
+        ``llm-resolve`` route answers 502).
 
         Parameters
         ----------
@@ -136,8 +142,8 @@ class BaseGateway:
         Returns
         -------
         dict[str, Any]
-            The ``fields`` mapping on success; ``{}`` when the content
-            is not valid JSON or ``fields`` is not a dict.
+            The ``fields`` mapping on success; ``{}`` when ``fields`` is
+            missing or not a dict.
 
         Raises
         ------
@@ -145,6 +151,9 @@ class BaseGateway:
             If ``content`` is not valid JSON; the exception is
             deliberately not swallowed here (callers decide the
             fallback policy).
+        AttributeError
+            If ``content`` is valid JSON but not an object (e.g. ``[]``
+            or ``"x"``); same policy.
 
         Dependencies
         -----------
@@ -466,7 +475,9 @@ class OllamaGateway(BaseGateway):
                 ],
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0},
+                # contesto esplicito: con quello di default di Ollama il prompt
+                # (fino a 12.000 caratteri di testo) verrebbe troncato in silenzio
+                "options": {"temperature": 0, "num_ctx": _OLLAMA_NUM_CTX},
             },
             timeout=120,
         )
