@@ -129,6 +129,19 @@ def test_patch_non_numeric_field_returns_422(client, token, payslip_pdf, inline_
     assert "marzo" in resp.json()["detail"]
 
 
+def test_patch_boolean_field_returns_422(client, token, payslip_pdf, inline_processing):
+    """Un booleano JSON non è un importo: prima Pydantic lo convertiva in 1.0 e il
+    controllo sui bool di coerce_correction_value non scattava mai."""
+    doc_id = _upload(client, token, payslip_pdf)["id"]
+    resp = client.patch(
+        f"/api/payslips/{doc_id}/fields",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"fields": {"net_pay": True}},
+    )
+    assert resp.status_code == 422
+    assert "net_pay" in resp.json()["detail"]
+
+
 def test_llm_resolve_with_malformed_response_is_handled(
     client, token, payslip_pdf, inline_processing, monkeypatch
 ):

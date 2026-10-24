@@ -281,8 +281,10 @@ class CorrectionIn(BaseModel):
 
     Attributes
     ----------
-    fields : dict[str, float | str | int | None]
-        Corrections keyed by canonical field name.
+    fields : dict[str, bool | float | str | int | None]
+        Corrections keyed by canonical field name. ``bool`` comes first
+        so a JSON ``true`` reaches ``coerce_correction_value`` (which
+        rejects it) instead of being silently coerced to ``1.0``.
 
     Dependencies
     -----------
@@ -296,4 +298,4 @@ class CorrectionIn(BaseModel):
     2450.3
     """
 
-    fields: dict[str, float | str | int | None]
+    fields: dict[str, bool | float | str | int | None]
