@@ -1,5 +1,6 @@
 services:
   postgres:
+    restart: unless-stopped
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-earnsight}
@@ -17,6 +18,7 @@ services:
       retries: 10
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     ports:
       - "127.0.0.1:6379:6379"
@@ -27,6 +29,11 @@ services:
       retries: 10
 
   api:
+    restart: unless-stopped
+    # Ollama gira sull'host: Docker Desktop risolve già host.docker.internal, su Linux serve
+    # questo (e Ollama in ascolto oltre 127.0.0.1, es. OLLAMA_HOST=0.0.0.0)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     build: ./backend
     env_file: .env
     ports:
@@ -34,7 +41,8 @@ services:
     volumes:
       - ./data:/data
     # Lo schema nasce da Alembic (mai da create_all): prima migrazione, poi serve.
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # exec: uvicorn prende il posto di sh e riceve direttamente il SIGTERM di docker stop
+    command: sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -48,6 +56,9 @@ services:
         condition: service_healthy
 
   worker:
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     build: ./backend
     env_file: .env
     volumes:
@@ -69,6 +80,7 @@ services:
 
   frontend:
     # SPA React servita da nginx non-root; nginx inoltra /api al servizio api
+    restart: unless-stopped
     build: ./frontend
     ports:
       - "8080:8080"
