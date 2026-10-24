@@ -125,3 +125,32 @@ def test_unreachable_broker_fails_fast(monkeypatch):
     with pytest.raises(Exception):  # noqa: B017 — kombu solleva OperationalError
         process_document.delay("00000000-0000-0000-0000-000000000000")
     assert time.monotonic() - start < 5
+
+
+def test_task_is_acknowledged_after_running():
+    """Un worker fermato a metà job (docker stop, riavvio) non perde il messaggio:
+    con l'ack dopo l'esecuzione Redis lo riconsegna, invece di lasciare il documento
+    in processing per sempre."""
+    from app.workers.celery_app import celery_app
+
+    assert celery_app.conf.task_acks_late is True
+
+
+def test_redelivered_job_leaves_a_finished_document_alone(session_factory, payslip_pdf):
+    """Con l'ack dopo il job, un messaggio di un worker ucciso torna dopo il visibility
+    timeout: se nel frattempo il documento è stato rielaborato e corretto, rifare
+    l'estrazione cancellerebbe le correzioni in silenzio. Si elabora solo ciò che è in
+    coda (pending) o rimasto a metà (processing)."""
+    doc_id = _make_document(session_factory, payslip_pdf)
+    process_document_sync(str(doc_id), session_factory=session_factory)
+    with session_factory() as db:
+        doc = db.get(PayslipDocument, doc_id)
+        assert doc.status == "done"
+        doc.net_pay = Decimal("1.00")  # una correzione dell'utente
+        db.commit()
+
+    process_document_sync(str(doc_id), session_factory=session_factory)  # la riconsegna
+
+    with session_factory() as db:
+        doc = db.get(PayslipDocument, doc_id)
+        assert doc.net_pay == Decimal("1.00")

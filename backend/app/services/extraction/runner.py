@@ -44,7 +44,10 @@ def process_document_sync(
     ----------
     doc_id : str
         UUID string of the ``PayslipDocument`` to process. Invalid or
-        unknown ids are logged and skipped.
+        unknown ids are logged and skipped, and so is a document no longer
+        ``pending`` or ``processing``: with late acknowledgement a message
+        can be delivered again after the document was finished (and maybe
+        corrected by the user), and redoing it would erase that work.
     session_factory : sessionmaker, optional
         Injected sync session factory. Defaults to ``SyncSessionLocal`` in
         production; tests inject a factory backed by sqlite so the
@@ -77,6 +80,11 @@ def process_document_sync(
             return
         if doc is None:
             logger.warning("process_document: documento %s non trovato", doc_id)
+            return
+        # Solo ciò che è in coda o rimasto a metà: un messaggio riconsegnato (ack dopo il
+        # job) non deve rifare un documento già concluso, magari corretto dall'utente.
+        if doc.status not in (DocumentStatus.PENDING.value, DocumentStatus.PROCESSING.value):
+            logger.info("process_document: %s già %s, salto", doc_id, doc.status)
             return
 
         doc.status = DocumentStatus.PROCESSING.value
