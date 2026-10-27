@@ -4,9 +4,11 @@ Pure functions over the records of ``records.py`` — no I/O, no SQL — shared 
 API (the «Anni» page) and, in phase 4, by the analyst agent. One summary per
 ``(year, employer)``. Rules, from the specification:
 
+- re-uploads (the same employer, year, month and kind; for the CU, the same year
+  and employer) are removed before anything else: the most recent copy counts and
+  the older ones are ``duplicates``;
 - only ``done`` documents enter sums, gaps and checks; the others are listed as
-  ``to_review``; re-uploads (the same employer, year, month and kind) count once,
-  the most recent;
+  ``to_review`` (a most recent copy not ``done`` included);
 - the "last payslip" of a year is the one with the highest year-to-date taxable
   income, not the latest month (an additional month may precede an ordinary one);
 - completeness compares the sum of the monthly figures with the last payslip's
@@ -276,16 +278,17 @@ def cu_check(cu: CuRecord, payslips: list[PayslipRecord]) -> CuVerdict:
 def _summary(
     year: int, employer: str | None, payslips: list[PayslipRecord], cus: list[CuRecord]
 ) -> YearSummary:
-    done = [p for p in payslips if p.status == DONE]
-    counted, duplicates = dedupe_payslips(done)
-    to_review = [p.id for p in payslips if p.status != DONE]
-    # la CU che conta: la più recente fra le done, altrimenti la più recente in assoluto
+    # prima i duplicati: conta la copia più recente, anche se non è done
+    kept, duplicates = dedupe_payslips(payslips)
+    counted = [p for p in kept if p.status == DONE]
+    to_review = [p.id for p in kept if p.status != DONE]
+    # la CU che conta è la più recente; se non è done, cu_check la dà da rivedere
     cu = None
     if cus:
-        done_cus = [c for c in cus if c.status == DONE]
-        cu = max(done_cus or cus, key=lambda c: c.created_at)
-        duplicates += [c for c in done_cus if c is not cu]
-        to_review += [c.id for c in cus if c.status != DONE]
+        cu = max(cus, key=lambda c: c.created_at)
+        duplicates += [c for c in cus if c is not cu]
+        if cu.status != DONE:
+            to_review.append(cu.id)
     newest = max(counted, key=lambda p: p.created_at, default=None)
     return YearSummary(
         year=year,

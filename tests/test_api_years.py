@@ -1,6 +1,6 @@
 """GET /api/years: le schede annuali calcolate sui documenti caricati via API.
 
-PDF sintetici (dati inventati): un cedolino Ranocchi di dicembre e una CU dello
+PDF sintetici (dati inventati): un cedolino Zucchetti, uno Ranocchi di dicembre e una CU dello
 stesso datore, con i punti 1 e 21 uguali ai progressivi del cedolino.
 """
 
@@ -11,7 +11,7 @@ from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
 from app.models.payslip import PayslipDocument
 from app.models.user import User
-from conftest import build_cu_pdf
+from conftest import build_cu_pdf, build_zucchetti_pdf
 from ranocchi_pdf import build_ranocchi_pdf
 from test_api_payslips import _upload
 
@@ -52,6 +52,27 @@ def test_years_card_with_matching_cu(client, token, tmp_path, inline_processing)
         "taxable_diff": "0.00",
         "tax_diff": "0.00",
     }
+
+
+def test_years_card_from_a_zucchetti_payslip(client, token, tmp_path, inline_processing):
+    payslip, earlier = tmp_path / "apr.pdf", tmp_path / "dic.pdf"
+    build_zucchetti_pdf(payslip, period="Aprile 2026", attendance_period="Marzo 2026")
+    build_ranocchi_pdf(earlier)
+    zucchetti_doc = _upload(client, token, payslip)
+    _upload(client, token, earlier)
+    assert zucchetti_doc["status"] == "done"
+
+    cards = _years(client, token)
+    assert [(c["year"], c["template"]) for c in cards] == [(2026, "zucchetti"), (2025, "ranocchi")]
+    card = cards[0]
+    assert card["employer_tax_code"] == EMPLOYER
+    # il foglio presenze di marzo non è un cedolino: conta solo aprile
+    assert card["payslips"] == [
+        {"id": zucchetti_doc["id"], "month": 4, "additional_payment": False}
+    ]
+    assert card["missing_months"] == [1, 2, 3]  # il progressivo porta reddito precedente
+    assert card["completeness"]["status"] == "incomplete"
+    assert card["cu"] is None
 
 
 def test_years_without_documents(client, token):

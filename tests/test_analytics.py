@@ -248,11 +248,32 @@ def test_duplicates_are_listed_and_left_out():
     assert [p.id for p in card.payslips] == [again.id]
 
 
-def test_most_recent_done_cu_counts_others_are_duplicates():
-    old, new, broken = cu(uploaded=0), cu(uploaded=5), cu(uploaded=9, status="failed")
-    card = year_summaries(chain([1, 2, 3]), [old, new, broken])[0]
-    assert card.cu.id == new.id
-    assert set(card.duplicates) == {old.id}
+def test_newest_copy_counts_even_when_not_done():
+    # opzione A: conta il ricaricamento più recente; se non è done il mese va da rivedere
+    months = chain([1, 2, 3])
+    again = payslip(2, ytd=2000, ytd_tax=400, uploaded=10, status="needs_review")
+    card = year_summaries([*months, again], [])[0]
+    assert card.duplicates == [months[1].id]
+    assert card.to_review == [again.id]
+    assert [p.month for p in card.payslips] == [1, 3]
+    assert card.missing_months == [2]
+    assert card.totals.taxable_income == D(2000)
+
+
+def test_most_recent_cu_counts_others_are_duplicates():
+    old, new = cu(uploaded=0), cu(uploaded=5)
+    card = year_summaries(chain([1, 2, 3]), [old, new])[0]
+    assert card.cu.id == new.id and card.cu.status == "match"
+    assert card.duplicates == [old.id]
+    assert card.to_review == []
+
+
+def test_most_recent_cu_counts_even_when_not_done():
+    # opzione A: la CU ricaricata più di recente conta; se non è done il verdetto è da rivedere
+    old, broken = cu(uploaded=0), cu(uploaded=9, status="failed")
+    card = year_summaries(chain([1, 2, 3]), [old, broken])[0]
+    assert card.cu.id == broken.id and card.cu.status == "to_review"
+    assert card.duplicates == [old.id]
     assert card.to_review == [broken.id]
 
 
