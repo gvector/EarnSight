@@ -26,7 +26,18 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
-    api.getSettings().then(show, (e: Error) => setError(e.message));
+    let current = true;
+    api.getSettings().then(
+      (s) => {
+        if (current) show(s);
+      },
+      (e: unknown) => {
+        if (current) setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      current = false;
+    };
   }, []);
 
   const submit = async (input: LlmSettingsInput, done: string) => {

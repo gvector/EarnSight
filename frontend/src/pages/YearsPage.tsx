@@ -43,7 +43,15 @@ function DocLinks({ ids, documents }: { ids: string[]; documents: DocumentSummar
   );
 }
 
-function CuLine({ cu, lastMonth }: { cu: YearCu | null; lastMonth: string | undefined }) {
+function CuLine({
+  cu,
+  lastMonth,
+  fiscalDataNoted,
+}: {
+  cu: YearCu | null;
+  lastMonth: string | undefined;
+  fiscalDataNoted: boolean;
+}) {
   if (!cu) return <p className="muted">Nessuna CU per quest'anno: è facoltativa, puoi caricarla da Panoramica</p>;
   const open = <Link to={`/documenti/${cu.id}`}>Apri la CU</Link>;
   switch (cu.status) {
@@ -58,6 +66,8 @@ function CuLine({ cu, lastMonth }: { cu: YearCu | null; lastMonth: string | unde
     case "no_payslips":
       return <p className="muted">Nessun cedolino di quest'anno da confrontare con la CU</p>;
     case "no_fiscal_data":
+      // la riga dei cedolini lo ha già detto: una volta basta
+      if (fiscalDataNoted) return null;
       return <p className="muted">I cedolini non hanno i dati fiscali: rielaborali</p>;
     case "to_review":
       return (
@@ -121,7 +131,11 @@ function YearCard({ year, documents }: { year: YearSummary; documents: DocumentS
           {completeness.status === "no_fiscal_data" && <p>I cedolini non hanno i dati fiscali: rielaborali</p>}
         </>
       )}
-      <CuLine cu={year.cu} lastMonth={lastMonth} />
+      <CuLine
+        cu={year.cu}
+        lastMonth={lastMonth}
+        fiscalDataNoted={year.payslips.length > 0 && completeness.status === "no_fiscal_data"}
+      />
       {year.duplicates.length > 0 && (
         <p>
           Caricati due volte, conta il più recente: <DocLinks ids={year.duplicates} documents={documents} />

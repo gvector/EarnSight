@@ -113,6 +113,16 @@ describe("YearsPage", () => {
     expect(screen.queryByText(/rielaborali/)).not.toBeInTheDocument();
   });
 
+  it("says only once that the payslips lack the fiscal data", async () => {
+    setup([
+      makeYear({
+        completeness: { status: "no_fiscal_data", taxable_diff: null, tax_diff: null },
+        cu: { id: "cu1", status: "no_fiscal_data", taxable_diff: null, tax_diff: null },
+      }),
+    ]);
+    expect(await screen.findAllByText("I cedolini non hanno i dati fiscali: rielaborali")).toHaveLength(1);
+  });
+
   it("is reachable from the navigation", async () => {
     const server = fakeApi();
     server.on("GET", "/payslips", { body: [] });

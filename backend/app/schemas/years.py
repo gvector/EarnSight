@@ -7,6 +7,7 @@ like the document totals. The front end's twin types live in ``frontend/src/api.
 
 import uuid
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -38,7 +39,7 @@ class TotalsOut(BaseModel):
 class CompletenessOut(BaseModel):
     """``complete`` / ``incomplete`` / ``no_fiscal_data`` and the year-to-date gaps."""
 
-    status: str
+    status: Literal["complete", "incomplete", "no_fiscal_data"]
     taxable_diff: Decimal | None
     tax_diff: Decimal | None
 
@@ -50,7 +51,7 @@ class CuVerdictOut(BaseModel):
     ``no_fiscal_data`` or ``to_review``, with the differences CU − payslips."""
 
     id: uuid.UUID
-    status: str
+    status: Literal["match", "mismatch", "no_payslips", "no_fiscal_data", "to_review"]
     taxable_diff: Decimal | None
     tax_diff: Decimal | None
 

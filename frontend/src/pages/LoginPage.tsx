@@ -23,6 +23,7 @@ export function LoginPage() {
       navigate(from, { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
       setBusy(false);
     }
   };

@@ -29,18 +29,21 @@ export function UploadPanel() {
     setBusy(true);
     const errors: string[] = [];
     let sent = 0;
-    for (const file of files) {
-      try {
-        await api.upload(file, docType);
-        sent += 1;
-      } catch (e) {
-        errors.push(`${file.name}: ${e instanceof ApiError ? e.message : String(e)}`);
+    try {
+      for (const file of files) {
+        try {
+          await api.upload(file, docType);
+          sent += 1;
+        } catch (e) {
+          errors.push(`${file.name}: ${e instanceof ApiError ? e.message : String(e)}`);
+        }
       }
+      setResult({ sent, errors });
+      setFiles([]);
+      if (input.current) input.current.value = ""; // un secondo invio non ricarica gli stessi file
+    } finally {
+      setBusy(false);
     }
-    setResult({ sent, errors });
-    setFiles([]);
-    if (input.current) input.current.value = ""; // un secondo invio non ricarica gli stessi file
-    setBusy(false);
     await reload();
   };
 

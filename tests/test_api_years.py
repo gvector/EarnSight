@@ -9,6 +9,7 @@ import uuid
 
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
+from app.main import app
 from app.models.payslip import PayslipDocument
 from app.models.user import User
 from conftest import build_cu_pdf, build_zucchetti_pdf
@@ -104,3 +105,20 @@ def test_years_are_per_user(client, token):
 
 def test_years_require_auth(client):
     assert client.get("/api/years").status_code == 401
+
+
+def test_years_statuses_are_a_closed_set():
+    # gli stati sono un insieme chiuso, come i tipi gemelli in frontend/src/api.ts
+    schemas = app.openapi()["components"]["schemas"]
+    assert set(schemas["CompletenessOut"]["properties"]["status"]["enum"]) == {
+        "complete",
+        "incomplete",
+        "no_fiscal_data",
+    }
+    assert set(schemas["CuVerdictOut"]["properties"]["status"]["enum"]) == {
+        "match",
+        "mismatch",
+        "no_payslips",
+        "no_fiscal_data",
+        "to_review",
+    }
