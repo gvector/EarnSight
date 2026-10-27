@@ -75,7 +75,7 @@ def process_document_sync(
     with factory() as db:
         try:
             doc = db.get(PayslipDocument, uuid.UUID(doc_id))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             logger.warning("process_document: doc_id non valido %s", doc_id)
             return
         if doc is None:
