@@ -123,7 +123,7 @@ class PayslipDocument(Base):
         DateTime(timezone=True), onupdate=func.now(), nullable=True
     )
 
-    entries: Mapped[list["PayslipEntry"]] = relationship(
+    entries: Mapped[list[PayslipEntry]] = relationship(
         back_populates="document", cascade="all, delete-orphan", lazy="selectin"
     )
 

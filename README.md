@@ -7,7 +7,7 @@ dati, controlla che i conti tornino e ti mostra quanto hai ricevuto mese per mes
 campi che non tornano si correggono a mano o con un LLM a scelta (anche locale).
 L'elaborazione avviene sul tuo computer.
 
-**Stack:** Python 3.12, FastAPI, Celery, PostgreSQL, PyMuPDF · React, TypeScript, nginx ·
+**Stack:** Python 3.14, FastAPI, Celery, PostgreSQL, PyMuPDF · React, TypeScript, nginx ·
 Docker Compose.
 
 ## Avvio

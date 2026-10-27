@@ -6,9 +6,10 @@ E2E = docker compose -p earnsight-e2e -f docker-compose.yml -f docker-compose.e2
 
 .PHONY: setup up down logs ps migrate test lint fmt check fe-check e2e lock privacy-check
 
-# --- prima installazione (venv Python 3.12 + dipendenze front-end) -------------------
+# --- prima installazione (venv Python 3.14 + dipendenze front-end) -------------------
+# --clear: ricrea un .venv esistente (es. uno ancora su Python 3.12)
 setup:
-	uv venv --python 3.12 .venv
+	uv venv --clear --python 3.14 .venv
 	uv pip install --python $(PY) -r backend/requirements.txt -r backend/requirements-dev.txt
 	cd frontend && npm ci
 
@@ -62,9 +63,9 @@ privacy-check:
 	$(PY) scripts/check_no_real_data.py
 
 # Lock delle dipendenze Python: si modificano i .in, poi `make lock` rigenera i .txt.
-# Python 3.12 come Dockerfile e CI; dev vincolato al lock del backend.
+# Python 3.14 come Dockerfile e CI; dev vincolato al lock del backend.
 # (Il front-end usa package-lock.json: npm install --save-exact.)
-LOCK = uv pip compile --quiet --universal --python-version 3.12
+LOCK = uv pip compile --quiet --universal --python-version 3.14
 lock:
 	$(LOCK) backend/requirements.in -o backend/requirements.txt
 	$(LOCK) backend/requirements-dev.in -c backend/requirements.txt -o backend/requirements-dev.txt
