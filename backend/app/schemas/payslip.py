@@ -179,7 +179,7 @@ class DocumentOut(BaseModel):
     total_deductions : Decimal | None
         Canonical total deductions.
     taxable_income : Decimal | None
-        IRPEF taxable income (payslip month, or CU point 1).
+        IRPEF taxable income (payslip month, or CU points 1 + 2).
     income_tax : Decimal | None
         IRPEF withheld (payslip month, or CU point 21).
     employer_tax_code : str | None

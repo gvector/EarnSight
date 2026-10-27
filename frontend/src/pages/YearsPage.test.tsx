@@ -113,6 +113,20 @@ describe("YearsPage", () => {
     expect(screen.queryByText(/rielaborali/)).not.toBeInTheDocument();
   });
 
+  it("labels December's additional payment as the 13th, the others by month", async () => {
+    setup([
+      makeYear({
+        payslips: [
+          { id: "p06", month: 6, additional_payment: true },
+          { id: "p12", month: 12, additional_payment: false },
+          { id: "p13", month: 12, additional_payment: true },
+        ],
+      }),
+    ]);
+    expect(await screen.findByRole("link", { name: "+ 13ª" })).toHaveAttribute("href", "/documenti/p13");
+    expect(screen.getByRole("link", { name: "+ agg. giu" })).toHaveAttribute("href", "/documenti/p06");
+  });
+
   it("says only once that the payslips lack the fiscal data", async () => {
     setup([
       makeYear({

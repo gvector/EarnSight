@@ -162,6 +162,7 @@ def _is_table_end(line: Line) -> bool:
 
 
 def _text(words: list[Word]) -> str | None:
+    """The words joined by spaces, or None without any."""
     return " ".join(w.text for w in words) or None
 
 

@@ -7,6 +7,9 @@ import { useDocuments } from "../state";
 
 const shortMonth = (month: number | null) => (month ? MONTHS[month - 1]!.slice(0, 3) : "?");
 
+// la mensilità aggiuntiva di dicembre è la 13ª; le altre restano col loro mese
+const additionalLabel = (month: number | null) => (month === 12 ? "+ 13ª" : `+ agg. ${shortMonth(month)}`);
+
 /** [1,2,3,6] → "gen–mar, giu": le serie consecutive si comprimono. */
 function monthRuns(months: number[]): string {
   const runs: number[][] = [];
@@ -99,7 +102,7 @@ function YearCard({ year, documents }: { year: YearSummary; documents: DocumentS
             <span key={p.id}>
               {i > 0 && " "}
               <Link to={`/documenti/${p.id}`}>
-                {p.additional_payment ? `+ agg. ${shortMonth(p.month)}` : shortMonth(p.month)}
+                {p.additional_payment ? additionalLabel(p.month) : shortMonth(p.month)}
               </Link>
             </span>
           ))}

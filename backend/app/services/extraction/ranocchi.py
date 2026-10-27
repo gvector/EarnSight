@@ -162,6 +162,7 @@ def _cell_amount(
 
 
 def _text(words: list[Word]) -> str:
+    """The words joined by spaces."""
     return " ".join(w.text for w in words)
 
 

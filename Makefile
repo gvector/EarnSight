@@ -60,7 +60,7 @@ e2e:
 
 # nessun valore dei cedolini reali (example_ced/) nei file che andrebbero in git
 privacy-check:
-	$(PY) scripts/check_no_real_data.py
+	$(PY) -m scripts.check_no_real_data
 
 # Lock delle dipendenze Python: si modificano i .in, poi `make lock` rigenera i .txt.
 # Python 3.14 come Dockerfile e CI; dev vincolato al lock del backend.

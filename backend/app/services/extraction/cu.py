@@ -10,7 +10,7 @@ other sections, so each point is found through its section heading and its
 label.
 
 Fields: ``period_year`` (after "RELATIVA ALL'ANNO"), ``taxable_income``
-(point 1 of DATI FISCALI, employee income), ``income_tax`` (point 21,
+(points 1 + 2 of DATI FISCALI, employee income), ``income_tax`` (point 21,
 IRPEF withheld) and ``employer_tax_code`` (the employer's box on page 1).
 An empty point gives an absent field, never an invented zero.
 

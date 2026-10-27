@@ -225,7 +225,7 @@ def _validate_cu(fields: dict[str, Any]) -> dict[str, Any]:
     """Run the deterministic checks of a CU.
 
     The CU has no gross/net/deductions totals and no entries, so the
-    payslip checks do not apply. The checks are: taxable income (point 1)
+    payslip checks do not apply. The checks are: taxable income (points 1 + 2)
     and IRPEF withheld (point 21) present (``missing_field``, action
     ``"llm"``); a plausible reference year (``period_valid``, ``"user"``);
     and ``tax_consistency`` (``"user"``): the tax neither negative nor
@@ -263,7 +263,7 @@ def _validate_cu(fields: dict[str, Any]) -> dict[str, Any]:
             {
                 "field": "taxable_income",
                 "check": "missing_field",
-                "message": "Imponibile IRPEF (punto 1) non trovato nella CU",
+                "message": "Imponibile IRPEF (punti 1 e 2) non trovato nella CU",
                 "action": "llm",
             }
         )

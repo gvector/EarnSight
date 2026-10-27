@@ -105,6 +105,7 @@ class YearSummary:
 
 
 def _close(a: Decimal, b: Decimal) -> bool:
+    """Whether two amounts agree within ``TOLERANCE`` (0.01 €)."""
     return abs(a - b) <= TOLERANCE
 
 
@@ -202,6 +203,7 @@ def missing_months(payslips: Iterable[PayslipRecord]) -> list[int]:
 
 
 def _sum(values: Iterable[Decimal | None]) -> Decimal | None:
+    """Sum the values present; None when none is."""
     present = [v for v in values if v is not None]
     return sum(present, Decimal(0)) if present else None
 
@@ -278,6 +280,7 @@ def cu_check(cu: CuRecord, payslips: list[PayslipRecord]) -> CuVerdict:
 def _summary(
     year: int, employer: str | None, payslips: list[PayslipRecord], cus: list[CuRecord]
 ) -> YearSummary:
+    """Build the card of one year and employer from its payslips and CUs."""
     # prima i duplicati: conta la copia più recente, anche se non è done
     kept, duplicates = dedupe_payslips(payslips)
     counted = [p for p in kept if p.status == DONE]

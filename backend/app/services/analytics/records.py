@@ -93,11 +93,13 @@ class CuRecord:
 
 
 def _jsonb_value(doc: Any, name: str) -> Any:
+    """The value of a field in the document's extraction JSONB, or None."""
     fields = (doc.extraction or {}).get("fields") or {}
     return (fields.get(name) or {}).get("value")
 
 
 def _decimal(value: Any) -> Decimal | None:
+    """A JSONB number as ``Decimal``; None for a missing value or a boolean."""
     # i float del JSONB passano da str: Decimal(0.1) porterebbe con sé l'errore binario
     if value is None or isinstance(value, bool):
         return None

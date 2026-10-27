@@ -74,6 +74,8 @@ def test_cu_requires_year_taxable_income_and_tax():
     assert {(e["field"], e["check"], e["action"]) for e in report["errors"]} == {
         ("taxable_income", "missing_field", "llm")
     }
+    # l'imponibile della CU è la somma dei punti 1 e 2: il messaggio lo dice
+    assert report["errors"][0]["message"] == "Imponibile IRPEF (punti 1 e 2) non trovato nella CU"
     report = run_validation(_cu_fields(period_year=FieldProvenance(value=None)), [], doc_type="cu")
     assert any(
         e["check"] == "period_valid" and e["field"] == "period_year" for e in report["errors"]
